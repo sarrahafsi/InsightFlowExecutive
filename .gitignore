@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Environment — NEVER commit secrets
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# HuggingFace models cache (gros fichiers)
+~/.cache/huggingface/
+ml/models/
+backend/nlp/models/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Google OAuth secrets — NEVER commit
+backend/credentialss.json
+backend/credentials.json
+backend/token.json
+backend/token*.json
+backend/*token*
+
+# Claude settings locaux
+.claude/
+
+# DB / logs
+*.log
+*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# ML — charts et datasets optionnels (à toi de décider)
+# ml/charts/      # décommente si tu veux exclure les charts
+# ml/dataset/     # décommente si tu veux exclure les datasets (gros fichiers)

@@ -1,0 +1,25 @@
+# ── Web framework ──────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.7.0
+pydantic-settings>=2.0.0
+httpx>=0.27.0
+python-dotenv>=1.0.0
+
+# ── Database ───────────────────────────────────────────────
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# ── Google / Gmail ─────────────────────────────────────────
+google-auth>=2.29.0
+google-auth-oauthlib>=1.2.0
+google-api-python-client>=2.126.0
+
+# ── NLP — HuggingFace (Level 1 AI) ────────────────────────
+transformers>=4.40.0
+torch>=2.2.0
+sentencepiece>=0.2.0        # XLM-RoBERTa tokenizer
+protobuf>=4.25.0
+
+# ── LLM — Ollama (local, via OpenAI-compatible API) ───────
+openai>=1.30.0              # client SDK utilisé pour appeler Ollama
