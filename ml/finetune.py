@@ -75,7 +75,31 @@ np.random.seed(SEED)
 # ── Dataset loading ───────────────────────────────────────────
 
 def load_csv_dataset(lang: str = "full", task: str = "sentiment") -> tuple[list[str], list[int]]:
-    """Load synthetic dataset from CSV. Returns texts + integer labels."""
+    """
+    Charge le dataset depuis les fichiers nettoyés (preprocess.py) si disponibles,
+    sinon fallback sur le dataset brut.
+    """
+    label_col = "sentiment_label" if task == "sentiment" else "emotion_label"
+    label2id  = SENTIMENT_LABEL2ID if task == "sentiment" else EMOTION_LABEL2ID
+
+    # Priorité : fichiers nettoyés (produits par preprocess.py)
+    clean_train = os.path.join(DATASET_DIR, f"clean_{task}_train.csv")
+    clean_val   = os.path.join(DATASET_DIR, f"clean_{task}_val.csv")
+    if os.path.exists(clean_train):
+        print(f"[Data] Fichiers nettoyés détectés → lecture de clean_{task}_*.csv")
+        texts, labels = [], []
+        for fpath in [clean_train, clean_val]:
+            with open(fpath, encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    content = (row.get("content_clean") or row.get("content", "")).strip()
+                    label   = row.get(label_col, "").strip()
+                    if content and label in label2id:
+                        texts.append(content[:512])
+                        labels.append(label2id[label])
+        print(f"[Data] {len(texts)} samples chargés (train+val nettoyés)")
+        return texts, labels
+
+    # Fallback : fichier brut
     file_map = {
         "en":   "insightflow_synthetic_en.csv",
         "fr":   "insightflow_synthetic_fr.csv",
@@ -84,7 +108,6 @@ def load_csv_dataset(lang: str = "full", task: str = "sentiment") -> tuple[list[
     filename = file_map.get(lang, "insightflow_synthetic_en.csv")
     path = os.path.join(DATASET_DIR, filename)
 
-    # Fallback si full n'existe pas encore
     if not os.path.exists(path):
         for fallback in ["insightflow_synthetic_en.csv", "insightflow_synthetic.csv"]:
             fp = os.path.join(DATASET_DIR, fallback)
