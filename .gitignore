@@ -33,6 +33,13 @@ backend/*token*
 # Claude settings locaux
 .claude/
 
+# ChromaDB — vecteurs binaires, ne pas commiter
+backend/chroma_db/
+backend/intelligence/chroma_db/
+
+# Uploads utilisateurs
+backend/uploads/
+
 # DB / logs
 *.log
 *.sqlite

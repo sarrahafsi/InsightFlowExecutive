@@ -1,15 +1,10 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import AskAnything from "@/components/AskAnything";
+import { useEffect, useState } from "react";
 import API from "@/lib/api";
-
-const NAV = [
-  { href: "/dashboard",        label: "Vue d'ensemble", icon: "◈" },
-  { href: "/dashboard/gmail",  label: "Gmail",          icon: "✉" },
-  { href: "/dashboard/slack",  label: "Slack",          icon: "#" },
-  { href: "/dashboard/jira",   label: "Jira",           icon: "J" },
-];
+import { useI18n } from "@/lib/i18n";
 
 interface SourceStatus {
   key: string;
@@ -24,44 +19,85 @@ interface SourceStatus {
   last_sync: string | null;
 }
 
+// Category display order + icons
+const CATEGORY_META: Record<string, { icon: string; order: number }> = {
+  Communication: { icon: "💬", order: 1 },
+  Projets:       { icon: "📋", order: 2 },
+  Agenda:        { icon: "📅", order: 3 },
+  CRM:           { icon: "☁️", order: 4 },
+  Dev:           { icon: "🐙", order: 5 },
+};
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
-  const [showSources, setShowSources] = useState(false);
+  const { t, locale, setLocale } = useI18n();
   const [sources, setSources] = useState<SourceStatus[]>([]);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const [projectCount, setProjectCount] = useState(0);
 
   useEffect(() => {
-    API.get("/api/sources/status").then(r => setSources(r.data)).catch(() => {});
+    API.get("/api/sources/status").then(r => {
+      const data = r.data;
+      setSources(data);
+      const cats = new Set<string>(data.map((s: SourceStatus) => s.category));
+      setCollapsedCategories(cats);
+    }).catch(() => {});
+
+    API.get("/api/projects").then(r => setProjectCount(r.data.length ?? 0)).catch(() => {});
   }, []);
 
-  // Close panel on outside click
-  useEffect(() => {
-    if (!showSources) return;
-    const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setShowSources(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showSources]);
+  // Group sources by category, sorted by CATEGORY_META order
+  const sourcesByCategory = sources.reduce((acc, s) => {
+    if (!acc[s.category]) acc[s.category] = [];
+    acc[s.category].push(s);
+    return acc;
+  }, {} as Record<string, SourceStatus[]>);
 
-  const connected = sources.filter(s => s.connected);
-  const available = sources.filter(s => !s.connected && s.available && !s.coming_soon);
-  const comingSoon = sources.filter(s => !s.connected && s.coming_soon);
+  const sortedCategories = Object.keys(sourcesByCategory).sort(
+    (a, b) => (CATEGORY_META[a]?.order ?? 99) - (CATEGORY_META[b]?.order ?? 99)
+  );
+
+  function toggleCategory(cat: string) {
+    setCollapsedCategories(prev => {
+      const next = new Set(prev);
+      next.has(cat) ? next.delete(cat) : next.add(cat);
+      return next;
+    });
+  }
+
+  function handleSourceClick(s: SourceStatus) {
+    if (s.coming_soon) return;
+    if (s.connected) {
+      router.push(`/dashboard/${s.key}`);
+    } else if (s.available) {
+      router.push("/onboarding");
+    }
+  }
+
+  const connectedCount = sources.filter(s => s.connected).length;
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: "DM Sans, sans-serif", background: "#f5f3ee" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap');*{box-sizing:border-box;margin:0;padding:0;}`}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0;}
+        .sb-item{transition:all 0.15s;cursor:pointer;}
+        .sb-item:hover{background:rgba(240,235,216,0.08) !important;}
+        .sb-item-disabled{cursor:default !important;}
+        .sb-cat-toggle{transition:all 0.15s;cursor:pointer;}
+        .sb-cat-toggle:hover{background:rgba(240,235,216,0.05) !important;}
+      `}</style>
 
       {/* Sidebar */}
       <aside style={{
-        width: 220, background: "#1d2d44", color: "#f0ebd8",
+        width: 230, background: "#1d2d44", color: "#f0ebd8",
         display: "flex", flexDirection: "column",
         position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 10,
+        overflowY: "auto",
       }}>
-        <div style={{ padding: "1.5rem 1.25rem 1rem", borderBottom: "1px solid rgba(240,235,216,0.1)" }}>
+        {/* Logo */}
+        <div style={{ padding: "1.5rem 1.25rem 1rem", borderBottom: "1px solid rgba(240,235,216,0.1)", flexShrink: 0 }}>
           <div style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", color: "#748cab", marginBottom: 4 }}>
             InsightFlow
           </div>
@@ -70,145 +106,177 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </div>
 
-        <nav style={{ flex: 1, padding: "1rem 0.75rem", display: "flex", flexDirection: "column", gap: 4 }}>
-          {NAV.map(({ href, label, icon }) => {
-            const active = path === href;
+        <nav style={{ flex: 1, padding: "0.75rem 0.75rem 0.5rem", display: "flex", flexDirection: "column" }}>
+
+          {/* Overview */}
+          <Link href="/dashboard" style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "9px 12px", borderRadius: 10, textDecoration: "none",
+            background: path === "/dashboard" ? "rgba(240,235,216,0.12)" : "transparent",
+            color: path === "/dashboard" ? "#f0ebd8" : "#748cab",
+            fontSize: 13, fontWeight: path === "/dashboard" ? 600 : 400,
+            transition: "all 0.15s", marginBottom: 6,
+          }}>
+            <span style={{ fontSize: 15 }}>◈</span>
+            {t.nav_overview}
+          </Link>
+
+          {/* Divider */}
+          <div style={{ height: 1, background: "rgba(240,235,216,0.07)", margin: "4px 4px 8px" }} />
+
+          {/* ── PROJECTS link ── */}
+          <Link href="/dashboard/projects" style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "9px 12px", borderRadius: 10, textDecoration: "none",
+            background: path.startsWith("/dashboard/projects") ? "rgba(240,235,216,0.12)" : "rgba(116,140,171,0.08)",
+            color: path.startsWith("/dashboard/projects") ? "#f0ebd8" : "#c8d8e8",
+            fontSize: 13, fontWeight: path.startsWith("/dashboard/projects") ? 600 : 500,
+            transition: "all 0.15s", marginBottom: 4,
+          }}>
+            <span style={{ fontSize: 15 }}>🗂️</span>
+            <span style={{ flex: 1 }}>{locale === "fr" ? "Projets" : "Projects"}</span>
+            {projectCount > 0 && (
+              <span style={{ fontSize: 10, background: "rgba(240,235,216,0.15)", color: "#c8d8e8", borderRadius: 10, padding: "1px 6px", fontWeight: 700 }}>
+                {projectCount}
+              </span>
+            )}
+          </Link>
+
+          {/* Divider */}
+          <div style={{ height: 1, background: "rgba(240,235,216,0.07)", margin: "4px 4px 8px" }} />
+
+          {/* Sources label + connected count */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", marginBottom: 6 }}>
+            <span style={{ fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase", color: "#748cab", fontWeight: 600 }}>
+              {locale === "fr" ? "Sources" : "Sources"}
+            </span>
+            {connectedCount > 0 && (
+              <span style={{ fontSize: 10, background: "#22c55e", color: "#fff", borderRadius: 10, padding: "1px 6px", fontWeight: 700 }}>
+                {connectedCount}
+              </span>
+            )}
+          </div>
+
+          {/* Categories */}
+          {sortedCategories.map(category => {
+            const catSources = sourcesByCategory[category];
+            const catMeta = CATEGORY_META[category];
+            const isCollapsed = collapsedCategories.has(category);
+            const hasConnected = catSources.some(s => s.connected);
+
             return (
-              <Link key={href} href={href} style={{
-                display: "flex", alignItems: "center", gap: 10,
-                padding: "10px 12px", borderRadius: 10, textDecoration: "none",
-                background: active ? "rgba(240,235,216,0.12)" : "transparent",
-                color: active ? "#f0ebd8" : "#748cab",
-                fontSize: 13, fontWeight: active ? 600 : 400,
-                transition: "all 0.15s",
-              }}>
-                <span style={{ fontSize: 15 }}>{icon}</span>
-                {label}
-              </Link>
+              <div key={category} style={{ marginBottom: 2 }}>
+                {/* Category header */}
+                <div
+                  className="sb-cat-toggle"
+                  onClick={() => toggleCategory(category)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "7px 10px", borderRadius: 8, marginTop: 6,
+                    background: "rgba(116,140,171,0.1)",
+                    cursor: "pointer", userSelect: "none",
+                  }}
+                >
+                  <span style={{ fontSize: 15 }}>{catMeta?.icon ?? "·"}</span>
+                  <span style={{ fontSize: 13, color: "#c8d8e8", fontWeight: 700, flex: 1, letterSpacing: "0.01em" }}>
+                    {category}
+                  </span>
+                  {hasConnected && (
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
+                  )}
+                  <span style={{ fontSize: 11, color: "#748cab", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>
+                    ▾
+                  </span>
+                </div>
+
+                {/* Sources in this category */}
+                {!isCollapsed && (
+                  <div style={{ paddingLeft: 8 }}>
+                    {catSources.map(s => {
+                      const isActive = path === `/dashboard/${s.key}`;
+                      const isDisabled = s.coming_soon;
+
+                      return (
+                        <div
+                          key={s.key}
+                          className={isDisabled ? "sb-item sb-item-disabled" : "sb-item"}
+                          onClick={() => handleSourceClick(s)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 9,
+                            padding: "7px 10px", borderRadius: 8, marginBottom: 1,
+                            background: isActive ? "rgba(240,235,216,0.12)" : "transparent",
+                            opacity: isDisabled ? 0.4 : 1,
+                          }}
+                        >
+                          <span style={{ fontSize: 14 }}>{s.icon}</span>
+                          <span style={{
+                            fontSize: 13, flex: 1,
+                            color: isActive ? "#f0ebd8" : s.connected ? "#c8d8e8" : "#748cab",
+                            fontWeight: isActive ? 600 : 400,
+                          }}>
+                            {s.name}
+                          </span>
+                          {s.connected ? (
+                            <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
+                          ) : s.coming_soon ? (
+                            <span style={{ fontSize: 9, color: "#748cab", background: "rgba(116,140,171,0.15)", borderRadius: 4, padding: "1px 5px", fontWeight: 600, letterSpacing: "0.05em" }}>
+                              {locale === "fr" ? "bientôt" : "soon"}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 9, color: "#a16207", background: "rgba(161,98,7,0.12)", borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>
+                              +
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
 
-          {/* Sources button */}
-          <div ref={panelRef} style={{ position: "relative" }}>
-            <button
-              onClick={() => setShowSources(v => !v)}
-              style={{
-                display: "flex", alignItems: "center", gap: 10, width: "100%",
-                padding: "10px 12px", borderRadius: 10, border: "none", cursor: "pointer",
-                background: showSources ? "rgba(240,235,216,0.12)" : "transparent",
-                color: showSources ? "#f0ebd8" : "#748cab",
-                fontSize: 13, fontWeight: showSources ? 600 : 400,
-                transition: "all 0.15s",
-              }}
-            >
-              <span style={{ fontSize: 15 }}>⊕</span>
-              Sources
-              {connected.length > 0 && (
-                <span style={{
-                  marginLeft: "auto", fontSize: 10, background: "#22c55e",
-                  color: "#fff", borderRadius: 10, padding: "1px 6px", fontWeight: 700,
-                }}>
-                  {connected.length}
-                </span>
-              )}
-            </button>
-
-            {showSources && (
-              <div style={{
-                position: "absolute", left: "calc(100% + 8px)", top: 0,
-                width: 280, background: "#fff", borderRadius: 14,
-                boxShadow: "0 8px 32px rgba(13,19,33,0.18)",
-                border: "1px solid rgba(62,92,118,0.12)",
-                zIndex: 100, overflow: "hidden",
-              }}>
-                {/* Connected */}
-                <div style={{ padding: "14px 16px 8px" }}>
-                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", color: "#748cab", fontWeight: 600, marginBottom: 8 }}>
-                    Connectées ({connected.length})
-                  </div>
-                  {connected.length === 0 ? (
-                    <p style={{ fontSize: 12, color: "#748cab", padding: "4px 0" }}>Aucune source connectée</p>
-                  ) : (
-                    connected.map(s => (
-                      <div
-                        key={s.key}
-                        onClick={() => { setShowSources(false); router.push(`/dashboard/${s.key}`); }}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 10,
-                          padding: "8px 10px", borderRadius: 8, marginBottom: 4,
-                          background: path === `/dashboard/${s.key}` ? "#f0fdf4" : "#f8fffe",
-                          cursor: "pointer", transition: "background 0.15s",
-                          border: `1px solid ${path === `/dashboard/${s.key}` ? "#86efac" : "transparent"}`,
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.background = "#e8f5e9")}
-                        onMouseLeave={e => (e.currentTarget.style.background = path === `/dashboard/${s.key}` ? "#f0fdf4" : "#f8fffe")}
-                      >
-                        <span style={{ fontSize: 16 }}>{s.icon}</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#0d1321" }}>{s.name}</div>
-                          <div style={{ fontSize: 11, color: "#748cab" }}>
-                            {s.items_count} items
-                            {s.last_sync && ` · ${new Date(s.last_sync).toLocaleDateString("fr-FR")}`}
-                          </div>
-                        </div>
-                        <span style={{ fontSize: 10, background: "#dcfce7", color: "#16a34a", borderRadius: 8, padding: "2px 8px", fontWeight: 600 }}>
-                          ✓ actif
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                {/* Available but not connected */}
-                {available.length > 0 && (
-                  <div style={{ padding: "8px 16px", borderTop: "1px solid rgba(62,92,118,0.08)" }}>
-                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", color: "#748cab", fontWeight: 600, marginBottom: 8 }}>
-                      Disponibles
-                    </div>
-                    {available.map(s => (
-                      <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, marginBottom: 4, background: "#f8f9fa" }}>
-                        <span style={{ fontSize: 16 }}>{s.icon}</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: "#0d1321" }}>{s.name}</div>
-                        </div>
-                        <span style={{ fontSize: 10, background: "#fef9c3", color: "#a16207", borderRadius: 8, padding: "2px 8px", fontWeight: 600 }}>
-                          non connecté
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Coming soon */}
-                <div style={{ padding: "8px 16px 14px", borderTop: "1px solid rgba(62,92,118,0.08)" }}>
-                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", color: "#748cab", fontWeight: 600, marginBottom: 8 }}>
-                    À venir ({comingSoon.length})
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {comingSoon.map(s => (
-                      <span key={s.key} style={{
-                        fontSize: 11, padding: "3px 10px", borderRadius: 20,
-                        background: "rgba(62,92,118,0.08)", color: "#748cab",
-                      }}>
-                        {s.icon} {s.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
+          {/* Add source link */}
+          <div style={{ marginTop: 8 }}>
+            <Link href="/onboarding" style={{
+              display: "flex", alignItems: "center", gap: 9,
+              padding: "7px 12px", borderRadius: 8, textDecoration: "none",
+              color: "#748cab", fontSize: 12,
+              border: "1px dashed rgba(116,140,171,0.25)",
+              transition: "all 0.15s",
+            }}>
+              <span style={{ fontSize: 14 }}>⊕</span>
+              {locale === "fr" ? "Gérer les sources" : "Manage sources"}
+            </Link>
           </div>
         </nav>
 
-        <div style={{ padding: "1rem 1.25rem", borderTop: "1px solid rgba(240,235,216,0.1)" }}>
-          <div style={{ fontSize: 11, color: "#748cab" }}>v0.1.0 — PFE 2026</div>
+        {/* Footer */}
+        <div style={{ padding: "0.75rem 1.25rem", borderTop: "1px solid rgba(240,235,216,0.1)", flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+            {(["fr", "en"] as const).map(l => (
+              <button key={l} onClick={() => setLocale(l)} style={{
+                flex: 1, padding: "5px 0", borderRadius: 8, border: "none",
+                background: locale === l ? "rgba(240,235,216,0.15)" : "transparent",
+                color: locale === l ? "#f0ebd8" : "#748cab",
+                fontSize: 12, fontWeight: locale === l ? 700 : 400,
+                cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.05em",
+              }}>
+                {l === "fr" ? "🇫🇷 FR" : "🇬🇧 EN"}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: "#748cab" }}>{t.app_version}</div>
         </div>
       </aside>
 
       {/* Main */}
-      <main style={{ marginLeft: 220, flex: 1, padding: "2rem 2.5rem", minWidth: 0 }}>
+      <main style={{ marginLeft: 230, flex: 1, padding: "2rem 2.5rem", minWidth: 0 }}>
         {children}
       </main>
+
+      {/* Chatbot flottant RAG */}
+      <AskAnything />
     </div>
   );
 }

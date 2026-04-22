@@ -1,0 +1,460 @@
+"use client";
+import { createContext, useContext, useState, ReactNode } from "react";
+
+export type Locale = "fr" | "en";
+
+const translations = {
+  fr: {
+    // Sidebar
+    nav_overview:    "Vue d'ensemble",
+    nav_gmail:       "Gmail",
+    nav_slack:       "Slack",
+    nav_jira:        "Jira",
+    nav_sources:     "Sources",
+    sources_connected:   "Connectées",
+    sources_available:   "Disponibles",
+    sources_coming_soon: "À venir",
+    source_active:   "✓ actif",
+    source_inactive: "non connecté",
+    app_version:     "v0.1.0 — PFE 2026",
+
+    // Dashboard header
+    page_overview:   "Vue d'ensemble",
+    dashboard_title: "Executive Dashboard",
+    dashboard_sub:   (n: number, date: string) => `${n} messages analysés · Mis à jour ${date}`,
+    btn_sync:        "Sync Gmail",
+    btn_syncing:     "Sync...",
+    btn_pdf:         "⬇ PDF",
+    sync_done:       (n: number) => `Sync terminé — ${n} messages en base`,
+    sync_error:      (msg: string) => `Erreur sync : ${msg}`,
+    loading:         "Analyse en cours...",
+    error_backend:   "Vérifiez que le backend tourne sur http://localhost:8000",
+
+    // KPI Cards
+    kpi_total:       "Total messages",
+    kpi_total_sub:   (n: number) => `Sur ${n} derniers jours`,
+    kpi_sources:     "Sources actives",
+    kpi_sources_sub: "Sources connectées",
+    kpi_alerts:      "Alertes critiques",
+    kpi_alerts_sub:  "Mots clés d'escalade détectés",
+    kpi_risk:        "Indice de risque",
+    kpi_risk_low:    "Faible", kpi_risk_medium: "Modéré", kpi_risk_high: "Critique",
+    kpi_risk_sub:    (l: string) => `Niveau ${l} · basé sur NLP`,
+    kpi_signals:     "Signaux de risque",
+    kpi_signals_sub: (r: number) => `${r}% des communications`,
+    kpi_velocity:    "Vélocité sem.",
+    kpi_velocity_sub:(n: number) => `Sem. passée : ${n}`,
+    kpi_sentiment:   "Sentiment positif",
+    kpi_sentiment_sub:(n: number, u: number) => `${n}% négatif · ${u}% neutre`,
+    kpi_nlp:         "Couverture NLP",
+    kpi_nlp_active:  "Modèles fine-tunés actifs",
+    kpi_nlp_sync:    "Sync Gmail pour enrichir",
+
+    // Charts
+    chart_activity:  "Activité globale",
+    chart_risk_trend:"Tendance des risques",
+    chart_risk_labels:"Blocked · Urgent · Risk · Conflict · Overload",
+    chart_no_risk:   "Pas de signal de risque détecté",
+    chart_sources:   "Répartition par source",
+    chart_sentiment: "Polarité des communications",
+    chart_volume:    "Volume par source",
+
+    // Signal Panel
+    signal_title:    "Intelligence Organisationnelle",
+    signal_subtitle: "Analyse Business des Communications",
+    signal_nlp_enriched: (n: number) => `${n}% NLP enrichi`,
+    signal_analyzing:"Analyse en cours...",
+    signal_climate:  (l: string) => `Climat ${l}`,
+    signal_business: "Signaux Business (Ollama · LLaMA 3.2)",
+    signal_emotion:  "Climat Émotionnel (XLM-RoBERTa · Fine-tuned)",
+    signal_topics:   "Sujets Dominants (Zero-Shot NLI)",
+    signal_no_data:  "Données insuffisantes — relancez la synchronisation",
+    signal_no_emotion:"Aucune donnée d'émotion — ETL en attente",
+
+    // Risk Feed
+    risk_title:      "Messages à Risque — Action Requise",
+    risk_signals:    (n: number) => `${n} signal${n > 1 ? "s" : ""} détecté${n > 1 ? "s" : ""}`,
+    risk_more:       (n: number) => `+${n} autres messages à risque`,
+    risk_no_title:   "(sans titre)",
+    risk_after_hours:"hors horaires",
+    risk_weekend:    "week-end",
+    risk_burnout:    (n: number) => `burnout ${n}%`,
+    btn_add_action:  "+ Action",
+    btn_added:       "✓ Ajouté",
+    btn_correct:     "✏️",
+
+    // Burnout
+    burnout_title:   "Signaux Comportementaux",
+    burnout_subtitle:"Bien-être de l'équipe",
+    burnout_after_hours: "🌙 Hors horaires",
+    burnout_weekend: "📅 Week-end",
+    burnout_score:   "🔥 Score burnout élevé (≥50%)",
+    burnout_avg:     (n: number) => `Score moyen équipe : ${n}%`,
+    burnout_authors: (n: number) => `${n} auteur${n > 1 ? "s" : ""}`,
+
+    // Monday Brief
+    brief_badge:     "IA Executive · Ollama LLaMA 3.2",
+    brief_title:     "📋 Le Brief Exécutif",
+    brief_sub:       (n: number) => `Résumé narratif généré par IA pour les ${n} derniers jours`,
+    brief_generate:  "✦ Générer le brief",
+    brief_regenerate:"↺ Regénérer",
+    brief_generating:"Génération...",
+    brief_no_ollama: "⚠️ Ollama non disponible — lancez",
+    brief_stat_messages: "Messages",
+    brief_stat_risk:     "Risque",
+    brief_stat_climate:  "Climat",
+    brief_stat_positive: "Positif",
+    brief_generated_at:  (date: string, period: string) => `Généré le ${date} · Période : ${period}`,
+
+    // Priority Inbox
+    priority_badge:  "Priority Inbox",
+    priority_title:  "À lire en priorité",
+    priority_sub:    "Classé par score IA",
+    priority_empty:  "Aucun message prioritaire détecté.",
+    priority_loading:"Calcul des priorités...",
+
+    // Action Items
+    actions_badge:   "Actions CEO",
+    actions_title:   "Suivi des décisions",
+    actions_pending: (n: number) => `${n} en attente`,
+    actions_loading: "Chargement...",
+    actions_empty:   "Aucune action en cours. Ajoutez-en depuis le RiskFeed.",
+    actions_done:    (n: number) => `Traité (${n})`,
+    actions_add_note:"+ Ajouter note",
+    actions_note_ph: "Ajouter une note...",
+
+    // Compare
+    compare_badge:   "Comparaison de périodes",
+    compare_title:   "Évolution dans le temps",
+    compare_vs:      "vs",
+    compare_loading: "Calcul...",
+    compare_messages:"Messages",
+    compare_risk_idx:"Indice de risque",
+    compare_signals: "Signaux de risque",
+    compare_positive:"Sentiment positif",
+    compare_negative:"Sentiment négatif",
+    compare_volume:  "Volume",
+    compare_climate: (l: string) => `Climat actuel : ${l}`,
+
+    // Search
+    search_ph:       "Rechercher un message, auteur, sujet...",
+    search_results:  (n: number) => `${n} résultat${n > 1 ? "s" : ""}`,
+
+    // Correction Modal
+    correction_title:  "Correction manuelle",
+    correction_business:"Catégorie business",
+    correction_sentiment:"Sentiment",
+    correction_topic:  "Sujet (topic)",
+    correction_cancel: "Annuler",
+    correction_save:   "Sauvegarder",
+    correction_saving: "Enregistrement...",
+
+    // Projects
+    proj_workspace:       "Espace de travail",
+    proj_my_projects:     "Mes Projets",
+    proj_count:           (n: number) => `${n} projet${n > 1 ? "s" : ""}`,
+    proj_none:            "Aucun projet",
+    proj_new:             "Nouveau projet",
+    proj_create:          "Créer un projet →",
+    proj_empty_title:     "Aucun projet pour l'instant",
+    proj_empty_sub:       "Créez votre premier projet pour centraliser fichiers, notes, tâches et messages en un seul endroit.",
+    proj_no_desc:         "Aucune description",
+    proj_no_members:      "Pas de membres",
+    proj_stat_notes:      "note",
+    proj_stat_files:      "fichier",
+    proj_stat_members:    "membre",
+    proj_back:            "← Projets",
+    proj_tab_activity:    "Activité",
+    proj_tab_plans:       "Plans",
+    proj_tab_notes:       "Notes",
+    proj_tab_files:       "Fichiers",
+    proj_tab_prefs:       "Paramètres",
+    proj_act_empty:       "Aucune activité pour l'instant.",
+    proj_plans_title:     "Plans — bientôt disponible",
+    proj_plans_sub:       "Connectez ClickUp pour visualiser vos tâches, milestones et avancement ici.",
+    proj_files_title:     "Fichiers — bientôt disponible",
+    proj_files_sub:       "Connectez OneDrive ou uploadez des fichiers directement dans ce projet.",
+    proj_note_title_ph:   "Titre de la note (optionnel)",
+    proj_note_content_ph: "Écrivez votre note ici...",
+    proj_note_chars:      (n: number) => `${n} caractères`,
+    proj_note_add:        "Ajouter la note",
+    proj_note_saving:     "Enregistrement...",
+    proj_note_empty:      "Aucune note pour l'instant.",
+    proj_note_delete:     "Supprimer",
+    proj_members_title:   "Membres",
+    proj_members_empty:   "Aucun membre ajouté.",
+    proj_sources_title:   "Sources connectées",
+    proj_sources_empty:   "Aucune source connectée — OneDrive et Teams arrivent bientôt.",
+    proj_sources_active:  "Connecté",
+    proj_danger_title:    "Zone dangereuse",
+    proj_danger_sub:      "La suppression du projet est irréversible. Toutes les notes et fichiers seront perdus.",
+    proj_danger_btn:      "Supprimer le projet",
+    proj_member_add:      "Ajouter un membre",
+    proj_member_name_ph:  "Nom complet",
+    proj_member_email_ph: "Email",
+    proj_member_role:     "Rôle",
+    proj_member_remove:   "Retirer",
+    proj_file_upload:     "Cliquez ou glissez un fichier ici",
+    proj_file_uploading:  "Upload en cours...",
+    proj_file_delete:     "Supprimer",
+    proj_file_empty:      "Aucun fichier pour l'instant.",
+    proj_file_size:       (n: number) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n/1024).toFixed(1)} KB` : `${(n/1048576).toFixed(1)} MB`,
+    proj_form_name:       "Nom du projet *",
+    proj_form_name_ph:    "ex : Refonte site web, ERP Migration...",
+    proj_form_desc:       "Description",
+    proj_form_desc_opt:   "(optionnel)",
+    proj_form_desc_ph:    "Décrivez brièvement ce projet...",
+    proj_form_color:      "Couleur",
+    proj_form_preview:    "Aperçu",
+    proj_form_submit:     "Créer le projet →",
+    proj_form_creating:   "Création...",
+    proj_form_back:       "← Retour",
+    proj_form_title:      "Nouveau projet",
+    proj_form_sub:        "Créez un espace de travail unifié pour votre projet",
+
+    // Misc
+    items_label:     "items",
+    messages_label:  "messages",
+    positif:         "Positif", neutre: "Neutre", negatif: "Négatif",
+  },
+
+  en: {
+    // Sidebar
+    nav_overview:    "Overview",
+    nav_gmail:       "Gmail",
+    nav_slack:       "Slack",
+    nav_jira:        "Jira",
+    nav_sources:     "Sources",
+    sources_connected:   "Connected",
+    sources_available:   "Available",
+    sources_coming_soon: "Coming soon",
+    source_active:   "✓ active",
+    source_inactive: "not connected",
+    app_version:     "v0.1.0 — PFE 2026",
+
+    // Dashboard header
+    page_overview:   "Overview",
+    dashboard_title: "Executive Dashboard",
+    dashboard_sub:   (n: number, date: string) => `${n} messages analyzed · Updated ${date}`,
+    btn_sync:        "Sync Gmail",
+    btn_syncing:     "Syncing...",
+    btn_pdf:         "⬇ PDF",
+    sync_done:       (n: number) => `Sync complete — ${n} messages in database`,
+    sync_error:      (msg: string) => `Sync error: ${msg}`,
+    loading:         "Analyzing...",
+    error_backend:   "Make sure the backend is running on http://localhost:8000",
+
+    // KPI Cards
+    kpi_total:       "Total messages",
+    kpi_total_sub:   (n: number) => `Last ${n} days`,
+    kpi_sources:     "Active sources",
+    kpi_sources_sub: "Connected sources",
+    kpi_alerts:      "Critical alerts",
+    kpi_alerts_sub:  "Escalation keywords detected",
+    kpi_risk:        "Risk index",
+    kpi_risk_low:    "Low", kpi_risk_medium: "Moderate", kpi_risk_high: "Critical",
+    kpi_risk_sub:    (l: string) => `${l} level · NLP-based`,
+    kpi_signals:     "Risk signals",
+    kpi_signals_sub: (r: number) => `${r}% of communications`,
+    kpi_velocity:    "Weekly velocity",
+    kpi_velocity_sub:(n: number) => `Last week: ${n}`,
+    kpi_sentiment:   "Positive sentiment",
+    kpi_sentiment_sub:(n: number, u: number) => `${n}% negative · ${u}% neutral`,
+    kpi_nlp:         "NLP coverage",
+    kpi_nlp_active:  "Fine-tuned models active",
+    kpi_nlp_sync:    "Sync Gmail to enrich",
+
+    // Charts
+    chart_activity:  "Global activity",
+    chart_risk_trend:"Risk trend",
+    chart_risk_labels:"Blocked · Urgent · Risk · Conflict · Overload",
+    chart_no_risk:   "No risk signal detected",
+    chart_sources:   "Distribution by source",
+    chart_sentiment: "Communication polarity",
+    chart_volume:    "Volume by source",
+
+    // Signal Panel
+    signal_title:    "Organizational Intelligence",
+    signal_subtitle: "Business Communication Analysis",
+    signal_nlp_enriched: (n: number) => `${n}% NLP enriched`,
+    signal_analyzing:"Analyzing...",
+    signal_climate:  (l: string) => `${l} climate`,
+    signal_business: "Business Signals (Ollama · LLaMA 3.2)",
+    signal_emotion:  "Emotional Climate (XLM-RoBERTa · Fine-tuned)",
+    signal_topics:   "Dominant Topics (Zero-Shot NLI)",
+    signal_no_data:  "Insufficient data — run a sync",
+    signal_no_emotion:"No emotion data — ETL pending",
+
+    // Risk Feed
+    risk_title:      "Risk Messages — Action Required",
+    risk_signals:    (n: number) => `${n} signal${n > 1 ? "s" : ""} detected`,
+    risk_more:       (n: number) => `+${n} more risk messages`,
+    risk_no_title:   "(no subject)",
+    risk_after_hours:"after hours",
+    risk_weekend:    "weekend",
+    risk_burnout:    (n: number) => `burnout ${n}%`,
+    btn_add_action:  "+ Action",
+    btn_added:       "✓ Added",
+    btn_correct:     "✏️",
+
+    // Burnout
+    burnout_title:   "Behavioral Signals",
+    burnout_subtitle:"Team wellbeing",
+    burnout_after_hours: "🌙 After hours",
+    burnout_weekend: "📅 Weekend",
+    burnout_score:   "🔥 High burnout score (≥50%)",
+    burnout_avg:     (n: number) => `Average team score: ${n}%`,
+    burnout_authors: (n: number) => `${n} author${n > 1 ? "s" : ""}`,
+
+    // Monday Brief
+    brief_badge:     "AI Executive · Ollama LLaMA 3.2",
+    brief_title:     "📋 Executive Brief",
+    brief_sub:       (n: number) => `AI-generated narrative for the last ${n} days`,
+    brief_generate:  "✦ Generate brief",
+    brief_regenerate:"↺ Regenerate",
+    brief_generating:"Generating...",
+    brief_no_ollama: "⚠️ Ollama unavailable — run",
+    brief_stat_messages: "Messages",
+    brief_stat_risk:     "Risk",
+    brief_stat_climate:  "Climate",
+    brief_stat_positive: "Positive",
+    brief_generated_at:  (date: string, period: string) => `Generated on ${date} · Period: ${period}`,
+
+    // Priority Inbox
+    priority_badge:  "Priority Inbox",
+    priority_title:  "Read first",
+    priority_sub:    "Ranked by AI score",
+    priority_empty:  "No priority messages detected.",
+    priority_loading:"Computing priorities...",
+
+    // Action Items
+    actions_badge:   "CEO Actions",
+    actions_title:   "Decision tracker",
+    actions_pending: (n: number) => `${n} pending`,
+    actions_loading: "Loading...",
+    actions_empty:   "No actions yet. Add them from the Risk Feed.",
+    actions_done:    (n: number) => `Done (${n})`,
+    actions_add_note:"+ Add note",
+    actions_note_ph: "Add a note...",
+
+    // Compare
+    compare_badge:   "Period comparison",
+    compare_title:   "Over time",
+    compare_vs:      "vs",
+    compare_loading: "Computing...",
+    compare_messages:"Messages",
+    compare_risk_idx:"Risk index",
+    compare_signals: "Risk signals",
+    compare_positive:"Positive sentiment",
+    compare_negative:"Negative sentiment",
+    compare_volume:  "Volume",
+    compare_climate: (l: string) => `Current climate: ${l}`,
+
+    // Search
+    search_ph:       "Search messages, authors, topics...",
+    search_results:  (n: number) => `${n} result${n > 1 ? "s" : ""}`,
+
+    // Correction Modal
+    correction_title:   "Manual correction",
+    correction_business:"Business category",
+    correction_sentiment:"Sentiment",
+    correction_topic:   "Topic",
+    correction_cancel:  "Cancel",
+    correction_save:    "Save",
+    correction_saving:  "Saving...",
+
+    // Projects
+    proj_workspace:       "Workspace",
+    proj_my_projects:     "My Projects",
+    proj_count:           (n: number) => `${n} project${n > 1 ? "s" : ""}`,
+    proj_none:            "No projects",
+    proj_new:             "New project",
+    proj_create:          "Create a project →",
+    proj_empty_title:     "No projects yet",
+    proj_empty_sub:       "Create your first project to centralize files, notes, tasks and messages in one place.",
+    proj_no_desc:         "No description",
+    proj_no_members:      "No members",
+    proj_stat_notes:      "note",
+    proj_stat_files:      "file",
+    proj_stat_members:    "member",
+    proj_back:            "← Projects",
+    proj_tab_activity:    "Activity",
+    proj_tab_plans:       "Plans",
+    proj_tab_notes:       "Notes",
+    proj_tab_files:       "Files",
+    proj_tab_prefs:       "Settings",
+    proj_act_empty:       "No activity yet.",
+    proj_plans_title:     "Plans — coming soon",
+    proj_plans_sub:       "Connect ClickUp to view tasks, milestones and progress here.",
+    proj_files_title:     "Files — coming soon",
+    proj_files_sub:       "Connect OneDrive or upload files directly to this project.",
+    proj_note_title_ph:   "Note title (optional)",
+    proj_note_content_ph: "Write your note here...",
+    proj_note_chars:      (n: number) => `${n} characters`,
+    proj_note_add:        "Add note",
+    proj_note_saving:     "Saving...",
+    proj_note_empty:      "No notes yet.",
+    proj_note_delete:     "Delete",
+    proj_members_title:   "Members",
+    proj_members_empty:   "No members added.",
+    proj_sources_title:   "Connected sources",
+    proj_sources_empty:   "No sources connected — OneDrive and Teams coming soon.",
+    proj_sources_active:  "Connected",
+    proj_danger_title:    "Danger zone",
+    proj_danger_sub:      "Deleting the project is irreversible. All notes and files will be lost.",
+    proj_danger_btn:      "Delete project",
+    proj_member_add:      "Add a member",
+    proj_member_name_ph:  "Full name",
+    proj_member_email_ph: "Email",
+    proj_member_role:     "Role",
+    proj_member_remove:   "Remove",
+    proj_file_upload:     "Click or drag a file here",
+    proj_file_uploading:  "Uploading...",
+    proj_file_delete:     "Delete",
+    proj_file_empty:      "No files yet.",
+    proj_file_size:       (n: number) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n/1024).toFixed(1)} KB` : `${(n/1048576).toFixed(1)} MB`,
+    proj_form_name:       "Project name *",
+    proj_form_name_ph:    "e.g. Website Redesign, ERP Migration...",
+    proj_form_desc:       "Description",
+    proj_form_desc_opt:   "(optional)",
+    proj_form_desc_ph:    "Briefly describe this project...",
+    proj_form_color:      "Color",
+    proj_form_preview:    "Preview",
+    proj_form_submit:     "Create project →",
+    proj_form_creating:   "Creating...",
+    proj_form_back:       "← Back",
+    proj_form_title:      "New project",
+    proj_form_sub:        "Create a unified workspace for your project",
+
+    // Misc
+    items_label:     "items",
+    messages_label:  "messages",
+    positif:         "Positive", neutre: "Neutral", negatif: "Negative",
+  },
+} as const;
+
+type Translations = typeof translations.fr;
+type TranslationKey = keyof Translations;
+
+interface I18nContextType {
+  locale: Locale;
+  setLocale: (l: Locale) => void;
+  t: Translations;
+}
+
+const I18nContext = createContext<I18nContextType>({
+  locale: "fr",
+  setLocale: () => {},
+  t: translations.fr,
+});
+
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [locale, setLocale] = useState<Locale>("fr");
+  return (
+    <I18nContext.Provider value={{ locale, setLocale, t: translations[locale] as Translations }}>
+      {children}
+    </I18nContext.Provider>
+  );
+}
+
+export const useI18n = () => useContext(I18nContext);

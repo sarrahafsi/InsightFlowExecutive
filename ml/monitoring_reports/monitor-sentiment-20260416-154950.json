@@ -1,0 +1,28 @@
+{
+  "task": "sentiment",
+  "window_days": 30,
+  "generated_at": "2026-04-16T15:49:44.346483",
+  "overall_status": "insufficient_data",
+  "checks": [
+    {
+      "check": "performance_drift",
+      "status": "skipped",
+      "details": {},
+      "reason": "Pas assez de corrections (0/10)"
+    },
+    {
+      "check": "distribution_drift",
+      "status": "skipped",
+      "details": {},
+      "reason": "Pas assez de pr\u00e9dictions (0)"
+    },
+    {
+      "check": "confidence_drift",
+      "status": "skipped",
+      "details": {},
+      "reason": "Pas de scores de confiance disponibles"
+    }
+  ],
+  "recommendation": "Pas assez de donn\u00e9es r\u00e9centes. Continuer \u00e0 utiliser le syst\u00e8me.",
+  "model_path": "C:\\Users\\lenovo\\Desktop\\InsightFlowExecutive\\ml\\models\\insightflow-sentiment-xlm-v1"
+}
