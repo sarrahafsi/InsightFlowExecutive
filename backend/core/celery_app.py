@@ -20,6 +20,7 @@ celery_app = Celery(
         "tasks.nlp_tasks",
         "tasks.sync_tasks",
         "tasks.report_tasks",
+        "tasks.orchestrate_tasks",
     ],
 )
 

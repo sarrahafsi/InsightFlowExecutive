@@ -29,9 +29,14 @@ def sync_gmail(self, since_days: int = 1):
             n = load_items(new_items, db)
             rows = load_from_db(db, since_days=since_days)
             logger.info("[Sync/Gmail] %d nouveaux items insérés", n)
-            return {"status": "ok", "source": "gmail", "inserted": n, "total": len(rows)}
         finally:
             db.close()
+
+        # ── Orchestrateur AI post-sync ──────────────────────────
+        from tasks.orchestrate_tasks import run_orchestration
+        run_orchestration.delay(source="gmail", new_items=len(new_items))
+
+        return {"status": "ok", "source": "gmail", "inserted": n}
 
     except Exception as exc:
         logger.error("[Sync/Gmail] Erreur : %s", exc)
@@ -58,9 +63,13 @@ def sync_jira(self, since_days: int = 1):
         try:
             n = load_items(new_items, db)
             logger.info("[Sync/Jira] %d tickets insérés", n)
-            return {"status": "ok", "source": "jira", "inserted": n}
         finally:
             db.close()
+
+        from tasks.orchestrate_tasks import run_orchestration
+        run_orchestration.delay(source="jira", new_items=len(new_items))
+
+        return {"status": "ok", "source": "jira", "inserted": n}
 
     except Exception as exc:
         logger.error("[Sync/Jira] Erreur : %s", exc)
@@ -87,9 +96,13 @@ def sync_slack(self, since_days: int = 1):
         try:
             n = load_items(new_items, db)
             logger.info("[Sync/Slack] %d messages insérés", n)
-            return {"status": "ok", "source": "slack", "inserted": n}
         finally:
             db.close()
+
+        from tasks.orchestrate_tasks import run_orchestration
+        run_orchestration.delay(source="slack", new_items=len(new_items))
+
+        return {"status": "ok", "source": "slack", "inserted": n}
 
     except Exception as exc:
         logger.error("[Sync/Slack] Erreur : %s", exc)
