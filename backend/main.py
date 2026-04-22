@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from application.routes import sync, items, auth, sources, analytics, actions, brief, search, ml, ask, emails, projects, onedrive, decisions, orchestration
+from application.routes import sync, items, auth, sources, analytics, actions, brief, search, ml, ask, emails, projects, onedrive, decisions, orchestration, mcp
 from application.deps import connector_manager, item_store
 from core.database import init_db, SessionLocal
 from integrations.connectors.schemas import DataItem, SourceType, ItemType
@@ -177,6 +177,7 @@ app.include_router(projects.router)
 app.include_router(onedrive.router)
 app.include_router(decisions.router, prefix="/api")
 app.include_router(orchestration.router)
+app.include_router(mcp.router)
 
 
 @app.get("/", tags=["health"])
