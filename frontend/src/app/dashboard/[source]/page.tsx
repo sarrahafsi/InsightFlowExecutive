@@ -28,7 +28,12 @@ const LABEL_COLORS: Record<string, string> = {
   SPAM: "#ef4444", DRAFT: "#94a3b8", PERSONAL: "#8b5cf6",
 };
 
-const PERIOD_OPTIONS = [7, 30, 90];
+const PERIOD_OPTIONS = [
+  { days: 1,  label: "Aujourd'hui" },
+  { days: 7,  label: "7 jours"     },
+  { days: 30, label: "30 jours"    },
+  { days: 90, label: "90 jours"    },
+];
 
 const TABS = [
   { id: "overview",  label: "Vue d'ensemble",  icon: "◈" },
@@ -43,7 +48,7 @@ export default function SourceDashboard() {
   const { source } = useParams<{ source: string }>();
   const config = SOURCE_CONFIG[source] ?? { label: source, icon: "◈", color: "#748cab" };
 
-  const [sinceDays, setSinceDays]   = useState(30);
+  const [sinceDays, setSinceDays]   = useState(1);
   const [activeTab, setActiveTab]   = useState<TabId>("overview");
   const [hoveredTab, setHoveredTab] = useState<TabId | null>(null);
   const [data, setData]             = useState<any>(null);
@@ -123,14 +128,15 @@ export default function SourceDashboard() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          {PERIOD_OPTIONS.map(d => (
-            <button key={d} onClick={() => setSinceDays(d)} style={{
+          {PERIOD_OPTIONS.map(({ days, label }) => (
+            <button key={days} onClick={() => setSinceDays(days)} style={{
               padding: "5px 13px", borderRadius: 20, cursor: "pointer",
-              border: `1px solid ${sinceDays === d ? config.color : "rgba(62,92,118,0.2)"}`,
-              background: sinceDays === d ? config.color : "transparent",
-              color: sinceDays === d ? "#fff" : "#748cab",
-              fontSize: 12, fontWeight: sinceDays === d ? 600 : 400,
-            }}>{d}j</button>
+              border: `1px solid ${sinceDays === days ? config.color : "rgba(62,92,118,0.2)"}`,
+              background: sinceDays === days ? config.color : "transparent",
+              color: sinceDays === days ? "#fff" : "#748cab",
+              fontSize: 12, fontWeight: sinceDays === days ? 600 : 400,
+              whiteSpace: "nowrap",
+            }}>{label}</button>
           ))}
           <button onClick={() => window.print()} style={{
             padding: "5px 13px", borderRadius: 20, cursor: "pointer",

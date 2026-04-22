@@ -24,7 +24,12 @@ const SOURCE_COLORS: Record<string, string> = {
   notion: "#333", outlook: "#0078D4",
 };
 
-const PERIOD_OPTIONS = [7, 30, 90];
+const PERIOD_OPTIONS = [
+  { days: 1,  label: "Aujourd'hui" },
+  { days: 7,  label: "7 jours"     },
+  { days: 30, label: "30 jours"    },
+  { days: 90, label: "90 jours"    },
+];
 
 const TABS = [
   { id: "overview",  label: "Vue d'ensemble", icon: "◈" },
@@ -47,7 +52,7 @@ const SOURCE_META: Record<string, { label: string; icon: string; color: string; 
 export default function DashboardOverview() {
   const { t } = useI18n();
   const router = useRouter();
-  const [sinceDays, setSinceDays] = useState(30);
+  const [sinceDays, setSinceDays] = useState(1);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [data, setData]     = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -136,14 +141,15 @@ export default function DashboardOverview() {
         </div>
 
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          {PERIOD_OPTIONS.map(d => (
-            <button key={d} onClick={() => setSinceDays(d)} style={{
+          {PERIOD_OPTIONS.map(({ days, label }) => (
+            <button key={days} onClick={() => setSinceDays(days)} style={{
               padding: "5px 13px", borderRadius: 20, cursor: "pointer",
-              border: `1px solid ${sinceDays === d ? "#3e5c76" : "rgba(62,92,118,0.2)"}`,
-              background: sinceDays === d ? "#3e5c76" : "transparent",
-              color: sinceDays === d ? "#fff" : "#748cab",
-              fontSize: 12, fontWeight: sinceDays === d ? 600 : 400,
-            }}>{d}j</button>
+              border: `1px solid ${sinceDays === days ? "#3e5c76" : "rgba(62,92,118,0.2)"}`,
+              background: sinceDays === days ? "#3e5c76" : "transparent",
+              color: sinceDays === days ? "#fff" : "#748cab",
+              fontSize: 12, fontWeight: sinceDays === days ? 600 : 400,
+              whiteSpace: "nowrap",
+            }}>{label}</button>
           ))}
           <button onClick={handleSync} disabled={syncing} style={{
             marginLeft: 4, padding: "5px 13px", borderRadius: 20, cursor: syncing ? "not-allowed" : "pointer",
