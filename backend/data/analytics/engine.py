@@ -392,11 +392,19 @@ def compute_gmail(store: ItemStore, since_days: int = 30) -> dict:
 
     response_times = []
     for v in thread_map.values():
-        if len(v) >= 2:
-            sorted_v = sorted(v, key=lambda x: x.timestamp)
-            delta = (sorted_v[1].timestamp - sorted_v[0].timestamp).total_seconds() / 3600
-            if 0 < delta < 168:
-                response_times.append(delta)
+        sorted_v = sorted(v, key=lambda x: x.timestamp)
+        for i, msg in enumerate(sorted_v):
+            if "SENT" in (msg.tags or []):
+                continue
+            # Find first SENT message after this INBOX message
+            reply = next(
+                (m for m in sorted_v[i + 1:] if "SENT" in (m.tags or [])),
+                None
+            )
+            if reply:
+                delta = (reply.timestamp - msg.timestamp).total_seconds() / 3600
+                if 0 < delta < 168:
+                    response_times.append(delta)
     avg_response_hours = round(sum(response_times) / len(response_times), 1) if response_times else None
 
     DAY_NAMES = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]

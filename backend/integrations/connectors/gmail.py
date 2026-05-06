@@ -19,6 +19,16 @@ MOCK_EMAILS = [
         "thread_id": "thread_001",
     },
     {
+        "id": "msg_001_reply",
+        "subject": "RE: Board Meeting — Agenda for April 7th",
+        "from": "me@company.com",
+        "from_name": "Me",
+        "body": "Thank you, I'll review the agenda before the meeting.",
+        "date": "2026-03-31T11:15:00Z",
+        "labels": ["SENT"],
+        "thread_id": "thread_001",
+    },
+    {
         "id": "msg_002",
         "subject": "RE: Partnership with Acme Corp — urgent decision needed",
         "from": "cto@company.com",
@@ -29,6 +39,16 @@ MOCK_EMAILS = [
         "thread_id": "thread_002",
     },
     {
+        "id": "msg_002_reply",
+        "subject": "RE: Partnership with Acme Corp — urgent decision needed",
+        "from": "me@company.com",
+        "from_name": "Me",
+        "body": "Agreed, let's proceed. I'll send a confirmation to Acme today.",
+        "date": "2026-04-01T16:47:00Z",
+        "labels": ["SENT"],
+        "thread_id": "thread_002",
+    },
+    {
         "id": "msg_003",
         "subject": "Customer churn report — March 2026",
         "from": "analytics@company.com",
@@ -36,6 +56,16 @@ MOCK_EMAILS = [
         "body": "Churn rate increased to 4.2% in March, up from 2.8% in February. Main driver appears to be pricing concerns among SMB segment.",
         "date": "2026-04-01T08:00:00Z",
         "labels": ["INBOX"],
+        "thread_id": "thread_003",
+    },
+    {
+        "id": "msg_003_reply",
+        "subject": "RE: Customer churn report — March 2026",
+        "from": "me@company.com",
+        "from_name": "Me",
+        "body": "Concerning numbers. Please schedule a call with the product team to discuss retention strategies.",
+        "date": "2026-04-01T10:30:00Z",
+        "labels": ["SENT"],
         "thread_id": "thread_003",
     },
 ]
@@ -80,9 +110,9 @@ class GmailConnector(BaseConnector):
                 if datetime.fromisoformat(e["date"].replace("Z", "+00:00")).replace(tzinfo=None) >= since
             ]
 
-        # Query: all inbox messages after `since`
+        # Query: inbox + sent (to compute response times)
         since_date = since.strftime("%Y/%m/%d")
-        query = f"in:inbox -category:promotions -label:spam -label:junk after:{since_date}"
+        query = f"(in:inbox OR in:sent) -category:promotions -label:spam -label:junk after:{since_date}"
 
         response = self._service.users().messages().list(
             userId="me", q=query, maxResults=200
