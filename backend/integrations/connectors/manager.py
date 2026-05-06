@@ -8,7 +8,7 @@ from .registry import ConnectorRegistry
 from .schemas import DataItem, SourceType, SyncResult
 
 # Import connectors so their @register decorators run
-from . import slack, gmail, jira, clickup  # noqa: F401
+from . import slack, gmail, jira, clickup, teams, outlook  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

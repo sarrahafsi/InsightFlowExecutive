@@ -7,8 +7,10 @@ export default function Onboarding() {
   const [loading, setLoading] = useState(true);
 
   // Connection states
-  const [gmailConnected, setGmailConnected] = useState(false);
-  const [jiraConnected, setJiraConnected]   = useState(false);
+  const [gmailConnected, setGmailConnected]     = useState(false);
+  const [jiraConnected, setJiraConnected]       = useState(false);
+  const [teamsConnected, setTeamsConnected]     = useState(false);
+  const [outlookConnected, setOutlookConnected] = useState(false);
 
   // Jira inline form
   const [jiraFormOpen, setJiraFormOpen]     = useState(false);
@@ -37,6 +39,14 @@ export default function Onboarding() {
 
     API.get("/auth/gmail/status")
       .then(r => { if (r.data.connected) setGmailConnected(true); })
+      .catch(() => {});
+
+    API.get("/api/sources/teams/status")
+      .then(r => { if (r.data.connected) setTeamsConnected(true); })
+      .catch(() => {});
+
+    API.get("/api/sources/outlook/status")
+      .then(r => { if (r.data.connected) setOutlookConnected(true); })
       .catch(() => {});
   }, []);
 
@@ -85,17 +95,27 @@ export default function Onboarding() {
       API.get("/auth/google").then(r => { window.location.href = r.data.url; }).catch(() => {});
       return;
     }
+    if (source.key === "teams" && !teamsConnected) {
+      window.location.href = "http://localhost:8000/auth/teams/connect";
+      return;
+    }
+    if (source.key === "outlook" && !outlookConnected) {
+      window.location.href = "http://localhost:8000/auth/outlook/connect";
+      return;
+    }
   }
 
   // Whether a source is connected
   function isConnected(key: string): boolean {
-    if (key === "slack")  return true;          // always connected via bot token
+    if (key === "slack")  return true;           // always connected via bot token
     if (key === "gmail")  return gmailConnected;
     if (key === "jira")   return jiraConnected;
+    if (key === "teams")   return teamsConnected;
+    if (key === "outlook") return outlookConnected;
     return false;
   }
 
-  const connectedCount = ["slack", "gmail", "jira"].filter(isConnected).length;
+  const connectedCount = ["slack", "gmail", "jira", "teams", "outlook"].filter(isConnected).length;
 
   if (loading) return (
     <div style={{ minHeight: "100vh", background: "#f0ebd8", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 14 }}>
@@ -301,9 +321,11 @@ export default function Onboarding() {
           </button>
           <p style={{ marginTop: 10, fontSize: "0.72rem", color: "#748cab" }}>
             {[
-              { key: "slack", label: "Slack" },
-              { key: "gmail", label: "Gmail" },
-              { key: "jira",  label: "Jira"  },
+              { key: "slack",   label: "Slack"   },
+              { key: "gmail",   label: "Gmail"   },
+              { key: "outlook", label: "Outlook" },
+              { key: "teams",   label: "Teams"   },
+              { key: "jira",    label: "Jira"    },
             ].map(({ key, label }) =>
               isConnected(key)
                 ? <span key={key} style={{ color: "#16a34a", fontWeight: 600 }}>{label} ✓</span>

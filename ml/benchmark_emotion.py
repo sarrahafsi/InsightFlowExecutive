@@ -9,11 +9,17 @@ Labels cibles (5 classes business) :
 Stratégie : les modèles HuggingFace retournent des émotions brutes
 (anger, joy, fear...) → mapping vers nos 5 labels business.
 
-Modèles comparés :
-  1. Keyword Baseline     — règles simples (baseline)
-  2. j-hartmann           — emotion-english-distilroberta-base (7 classes)
-  3. bhadresh-savani      — distilbert-base-uncased-emotion (6 classes)
-  4. SamLowe GoEmotions   — roberta-base-go_emotions (28 classes)
+Modèles comparés (tous multilingues FR+EN + pré-entraînés sur émotions) :
+  1. Keyword Baseline        — règles FR+EN (baseline simple)
+  2. Toshifumi mBERT-emotion — bert-base-multilingual-cased, 6 classes, 104 langues
+  3. AnasAlokla mGoEmotions  — bert-base-multilingual-cased, 27 classes, 6 langues (FR✅)
+  4. MilaNLProc xlm-emo-t   — XLM-RoBERTa, 4 classes, 19 langues (FR✅)
+
+Critères de sélection des modèles :
+  ✅ Multilingue (supporte FR + EN)
+  ✅ Pré-entraîné spécifiquement sur des émotions
+  → Les modèles EN-only (j-hartmann, bhadresh, SamLowe) exclus car non conformes
+    au critère multilingue requis par notre dataset FR+EN.
 
 Dataset : ml/dataset/insightflow_synthetic_full.csv
           (uniquement les rows avec emotion_label non vide)
@@ -51,75 +57,71 @@ os.makedirs(CHARTS_DIR, exist_ok=True)
 EMOTION_LABELS = ["frustration", "concern", "urgency", "neutral", "satisfaction"]
 
 COLORS = {
-    "Keyword Baseline":          "#4C72B0",
-    "j-hartmann (distilRoBERTa)": "#DD8452",
-    "bhadresh (DistilBERT)":     "#55A868",
-    "SamLowe GoEmotions":        "#C44E52",
+    "Keyword Baseline":           "#4C72B0",
+    "Toshifumi (mBERT)":          "#DD8452",
+    "AnasAlokla (mGoEmotions)":   "#55A868",
+    "MilaNLProc (xlm-emo-t)":     "#8172B3",
 }
 
 # ─────────────────────────────────────────────────────────────────
 #  MAPPINGS  raw HuggingFace label → business label
 # ─────────────────────────────────────────────────────────────────
 
-# j-hartmann/emotion-english-distilroberta-base
-#   raw : anger | disgust | fear | joy | neutral | sadness | surprise
-HARTMANN_MAP = {
-    "anger":    "frustration",
-    "disgust":  "frustration",
-    "fear":     "concern",
-    "sadness":  "concern",
-    "joy":      "satisfaction",
-    "surprise": "urgency",
-    "neutral":  "neutral",
-}
-
-# bhadresh-savani/distilbert-base-uncased-emotion
+# Toshifumi/bert-base-multilingual-cased-finetuned-emotion
+#   base : bert-base-multilingual-cased (104 langues dont FR✅ EN✅)
+#   dataset : dair-ai/emotion — 6 classes
 #   raw : sadness | joy | love | anger | fear | surprise
-BHADRESH_MAP = {
+TOSHIFUMI_MAP = {
     "anger":   "frustration",
     "fear":    "concern",
     "sadness": "concern",
     "joy":     "satisfaction",
     "love":    "satisfaction",
     "surprise":"urgency",
-    # neutral absent → default
 }
 
-# SamLowe/roberta-base-go_emotions  (28 classes)
-GOEMOTIONS_MAP = {
-    # frustration
-    "anger":        "frustration",
-    "annoyance":    "frustration",
-    "disapproval":  "frustration",
-    "disgust":      "frustration",
-    "embarrassment":"frustration",
-    # concern
-    "fear":         "concern",
-    "nervousness":  "concern",
-    "sadness":      "concern",
-    "grief":        "concern",
-    "remorse":      "concern",
-    "disappointment":"concern",
-    # urgency
-    "surprise":     "urgency",
-    "confusion":    "urgency",
-    "realization":  "urgency",
-    # satisfaction
-    "joy":          "satisfaction",
-    "admiration":   "satisfaction",
-    "amusement":    "satisfaction",
-    "approval":     "satisfaction",
-    "caring":       "satisfaction",
-    "excitement":   "satisfaction",
-    "gratitude":    "satisfaction",
-    "love":         "satisfaction",
-    "optimism":     "satisfaction",
-    "pride":        "satisfaction",
-    "relief":       "satisfaction",
-    # neutral
-    "neutral":      "neutral",
-    "curiosity":    "neutral",
-    "desire":       "neutral",
+# AnasAlokla/multilingual_go_emotions_V1.1
+#   base : bert-base-multilingual-cased (FR✅ EN✅ + Arabic, Spanish, Dutch, Turkish)
+#   dataset : multilingual_go_emotions — 27 classes
+MGOEMOTIONS_MAP = {
+    "anger":          "frustration",
+    "annoyance":      "frustration",
+    "disapproval":    "frustration",
+    "disgust":        "frustration",
+    "embarrassment":  "frustration",
+    "fear":           "concern",
+    "nervousness":    "concern",
+    "sadness":        "concern",
+    "grief":          "concern",
+    "remorse":        "concern",
+    "disappointment": "concern",
+    "surprise":       "urgency",
+    "confusion":      "urgency",
+    "realization":    "urgency",
+    "joy":            "satisfaction",
+    "admiration":     "satisfaction",
+    "amusement":      "satisfaction",
+    "approval":       "satisfaction",
+    "caring":         "satisfaction",
+    "excitement":     "satisfaction",
+    "gratitude":      "satisfaction",
+    "love":           "satisfaction",
+    "optimism":       "satisfaction",
+    "pride":          "satisfaction",
+    "relief":         "satisfaction",
+    "neutral":        "neutral",
+    "curiosity":      "neutral",
+    "desire":         "neutral",
+}
+
+# MilaNLProc/xlm-emo-t
+#   base : XLM-RoBERTa (19 langues dont FR✅ EN✅)
+#   raw : anger | fear | joy | sadness
+XLMEMO_MAP = {
+    "anger":   "frustration",
+    "fear":    "concern",
+    "joy":     "satisfaction",
+    "sadness": "concern",
 }
 
 
@@ -462,34 +464,34 @@ def run_emotion_benchmark(lang: str = "full", n_samples: int = 500):
 
     results: list[ModelResult] = []
 
-    # 1. Keyword Baseline
-    print("\n[1/4] Keyword Baseline...")
+    # 1. Keyword Baseline (FR+EN)
+    print("\n[1/4] Keyword Baseline (FR+EN)...")
     preds, ms = run_keyword_baseline(texts)
     results.append(evaluate("Keyword Baseline", preds, labels, ms))
 
-    # 2. j-hartmann
-    print("[2/4] j-hartmann/emotion-english-distilroberta-base...")
+    # 2. Toshifumi — mBERT multilingue + émotion (104 langues)
+    print("[2/4] Toshifumi/bert-base-multilingual-cased-finetuned-emotion...")
     preds, ms = run_hf_emotion(
-        "j-hartmann/emotion-english-distilroberta-base",
-        HARTMANN_MAP, texts,
+        "Toshifumi/bert-base-multilingual-cased-finetuned-emotion",
+        TOSHIFUMI_MAP, texts,
     )
-    results.append(evaluate("j-hartmann (distilRoBERTa)", preds, labels, ms))
+    results.append(evaluate("Toshifumi (mBERT)", preds, labels, ms))
 
-    # 3. bhadresh-savani
-    print("[3/4] bhadresh-savani/distilbert-base-uncased-emotion...")
+    # 3. AnasAlokla — mBERT multilingue + GoEmotions 27 classes (FR✅)
+    print("[3/4] AnasAlokla/multilingual_go_emotions_V1.1...")
     preds, ms = run_hf_emotion(
-        "bhadresh-savani/distilbert-base-uncased-emotion",
-        BHADRESH_MAP, texts,
+        "AnasAlokla/multilingual_go_emotions_V1.1",
+        MGOEMOTIONS_MAP, texts,
     )
-    results.append(evaluate("bhadresh (DistilBERT)", preds, labels, ms))
+    results.append(evaluate("AnasAlokla (mGoEmotions)", preds, labels, ms))
 
-    # 4. SamLowe GoEmotions
-    print("[4/4] SamLowe/roberta-base-go_emotions...")
+    # 4. MilaNLProc — XLM-RoBERTa multilingue + émotion (19 langues FR✅)
+    print("[4/4] MilaNLProc/xlm-emo-t...")
     preds, ms = run_hf_emotion(
-        "SamLowe/roberta-base-go_emotions",
-        GOEMOTIONS_MAP, texts,
+        "MilaNLProc/xlm-emo-t",
+        XLMEMO_MAP, texts,
     )
-    results.append(evaluate("SamLowe GoEmotions", preds, labels, ms))
+    results.append(evaluate("MilaNLProc (xlm-emo-t)", preds, labels, ms))
 
     # ── Résultats ─────────────────────────────────────────────────
     print(f"\n{'='*75}")

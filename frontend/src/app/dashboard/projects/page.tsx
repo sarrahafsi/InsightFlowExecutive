@@ -29,8 +29,12 @@ const STATUS_META = {
   off_track: { label: "OFF TRACK", color: "#dc2626", bg: "#fef2f2", border: "#fecaca" },
 };
 
-const SOURCE_ICONS: Record<string, string> = {
-  onedrive: "📁", teams: "💬", clickup: "✅", gmail: "✉️", slack: "💬",
+const SOURCE_ABBREV: Record<string, string> = {
+  onedrive: "OD", teams: "TM", clickup: "CU", gmail: "GM", slack: "SL", outlook: "OL",
+};
+const SOURCE_COLOR: Record<string, string> = {
+  onedrive: "#0078D4", teams: "#6264A7", clickup: "#7B68EE",
+  gmail: "#EA4335", slack: "#4A154B", outlook: "#0078D4",
 };
 
 const SENTIMENT_COLOR: Record<string, string> = {
@@ -152,7 +156,9 @@ export default function ProjectsPage() {
       {/* ── Empty state ─────────────────────────────────────────────── */}
       {projects.length === 0 ? (
         <div style={{ textAlign: "center", padding: "5rem 2rem", animation: "fadeUp 0.4s ease", background: "#fff", borderRadius: 20, border: "1px dashed rgba(62,92,118,0.2)" }}>
-          <div style={{ fontSize: 52, marginBottom: "1.25rem" }}>🗂️</div>
+          <div style={{ width: 64, height: 64, borderRadius: 20, background: "rgba(62,92,118,0.07)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.25rem" }}>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#3e5c76" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          </div>
           <h2 style={{ fontFamily: "DM Serif Display, serif", fontSize: 24, color: "#0d1321", marginBottom: 10 }}>
             {locale === "fr" ? "Aucun projet pour l'instant" : "No projects yet"}
           </h2>
@@ -176,11 +182,20 @@ export default function ProjectsPage() {
   );
 }
 
+function healthScore(p: Project): { score: number; label: string; color: string } {
+  if (p.status === "off_track" || p.risk_level === "High")
+    return { score: Math.max(10, 40 - p.blockers * 5), label: "Critique", color: "#ef4444" };
+  if (p.status === "at_risk"   || p.risk_level === "Medium")
+    return { score: Math.min(65, 55 + p.progress / 10), label: "Tendu",   color: "#f59e0b" };
+  return   { score: Math.min(99, 70 + p.progress / 10), label: "Sain",    color: "#22c55e" };
+}
+
 function ProjectCard({ project: p, onClick }: { project: Project; onClick: () => void }) {
   const status = STATUS_META[p.status] ?? STATUS_META.on_track;
   const progressColor = p.progress >= 70 ? "#16a34a" : p.progress >= 40 ? "#d97706" : "#ef4444";
   const owner = p.members.find(m => m.role === "owner") ?? p.members[0];
   const ownerName = owner?.name ?? p.created_by ?? "CEO";
+  const health = healthScore(p);
 
   return (
     <div
@@ -231,33 +246,56 @@ function ProjectCard({ project: p, onClick }: { project: Project; onClick: () =>
           {p.description ?? <span style={{ fontStyle: "italic", color: "#c0cdd8" }}>Aucune description</span>}
         </p>
 
-        {/* ── Row 4: Progress bar ── */}
-        <div style={{ marginBottom: "1rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em" }}>Progress</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: progressColor }}>{p.progress}%</span>
+        {/* ── Row 4: Health Score ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: "1rem", padding: "10px 12px", borderRadius: 12, background: `${health.color}09`, border: `1px solid ${health.color}25` }}>
+          <div style={{ position: "relative", width: 44, height: 44, flexShrink: 0 }}>
+            <svg width="44" height="44" viewBox="0 0 44 44">
+              <circle cx="22" cy="22" r="18" fill="none" stroke="rgba(62,92,118,0.1)" strokeWidth="4" />
+              <circle cx="22" cy="22" r="18" fill="none" stroke={health.color} strokeWidth="4"
+                strokeDasharray={`${(health.score / 100) * 113} 113`}
+                strokeLinecap="round"
+                transform="rotate(-90 22 22)" />
+            </svg>
+            <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: health.color }}>
+              {health.score}
+            </span>
           </div>
-          <div style={{ height: 6, background: "rgba(62,92,118,0.1)", borderRadius: 6, overflow: "hidden" }}>
+          <div>
+            <div style={{ fontSize: 10, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 600, marginBottom: 2 }}>Score Santé</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: health.color, display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: health.color, display: "inline-block", flexShrink: 0 }} />
+              {health.label}
+            </div>
+          </div>
+          <div style={{ marginLeft: "auto", textAlign: "right" }}>
+            <div style={{ fontSize: 10, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>Progress</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: progressColor }}>{p.progress}%</div>
+          </div>
+        </div>
+
+        {/* ── Row 5: Progress bar ── */}
+        <div style={{ marginBottom: "1rem" }}>
+          <div style={{ height: 5, background: "rgba(62,92,118,0.08)", borderRadius: 6, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${p.progress}%`, background: progressColor, borderRadius: 6, transition: "width 0.6s ease" }} />
           </div>
         </div>
 
         {/* ── Row 5: Metrics footer ── */}
         <div style={{ display: "flex", alignItems: "center", paddingTop: "0.75rem", borderTop: "1px solid rgba(62,92,118,0.07)", flexWrap: "wrap", gap: 4 }}>
-          <MetricItem icon="🚧" label={`${p.blockers} blocker${p.blockers !== 1 ? "s" : ""}`} color={p.blockers > 0 ? "#ef4444" : "#748cab"} />
+          <MetricItem label={`${p.blockers} blocker${p.blockers !== 1 ? "s" : ""}`} color={p.blockers > 0 ? "#ef4444" : "#748cab"} />
           <Dot />
-          <MetricItem icon="⚠️" label={`Risk: ${p.risk_level}`} color={RISK_COLOR[p.risk_level] ?? "#748cab"} />
+          <MetricItem label={`Risk: ${p.risk_level}`} color={RISK_COLOR[p.risk_level] ?? "#748cab"} />
           <Dot />
-          <MetricItem icon="◉" label={p.sentiment} color={SENTIMENT_COLOR[p.sentiment] ?? "#748cab"} />
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <MetricItem label={p.sentiment} color={SENTIMENT_COLOR[p.sentiment] ?? "#748cab"} />
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
             {p.sources.slice(0, 3).map(s => (
-              <span key={s.id} title={s.source_type} style={{ fontSize: 13 }}>{SOURCE_ICONS[s.source_type] ?? "🔗"}</span>
+              <span key={s.id} title={s.source_type} style={{ fontSize: 10, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: `${SOURCE_COLOR[s.source_type] ?? "#748cab"}15`, color: SOURCE_COLOR[s.source_type] ?? "#748cab", letterSpacing: "0.03em" }}>
+                {SOURCE_ABBREV[s.source_type] ?? s.source_type.slice(0, 2).toUpperCase()}
+              </span>
             ))}
+            <span style={{ color: "#c0cdd8", fontSize: 10 }}>·</span>
             <span style={{ fontSize: 11, color: "#94a3b8" }}>
-              📝{p.notes_count} · 📁{p.files_count} · 👥{p.members.length}
-            </span>
-            <span style={{ fontSize: 11, color: "#a0b4c4" }}>
-              · 🗓 {new Date(p.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
+              {p.notes_count} notes · {p.files_count} fichiers · {p.members.length} membres
             </span>
           </div>
         </div>
@@ -267,10 +305,11 @@ function ProjectCard({ project: p, onClick }: { project: Project; onClick: () =>
   );
 }
 
-function MetricItem({ icon, label, color }: { icon: string; label: string; color: string }) {
+function MetricItem({ label, color }: { label: string; color: string }) {
   return (
-    <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, color }}>
-      <span style={{ fontSize: 12 }}>{icon}</span>{label}
+    <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color }}>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, display: "inline-block", flexShrink: 0 }} />
+      {label}
     </span>
   );
 }

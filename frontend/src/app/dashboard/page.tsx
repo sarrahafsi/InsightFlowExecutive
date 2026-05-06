@@ -10,7 +10,9 @@ import DonutChart from "@/components/charts/DonutChart";
 import SignalPanel from "@/components/intelligence/SignalPanel";
 import RiskFeed from "@/components/intelligence/RiskFeed";
 import BurnoutCard from "@/components/intelligence/BurnoutCard";
-import MondayBrief from "@/components/MondayBrief";
+import AnomalyCard from "@/components/intelligence/AnomalyCard";
+import OrganizationHealthPanel from "@/components/intelligence/OrganizationHealthPanel";
+import CorrelationPanel from "@/components/intelligence/CorrelationPanel";
 import PriorityInbox from "@/components/PriorityInbox";
 import ActionItems from "@/components/ActionItems";
 import CompareMode from "@/components/CompareMode";
@@ -18,6 +20,7 @@ import DecisionLog from "@/components/DecisionLog";
 import AlertToast from "@/components/AlertToast";
 import SearchBar from "@/components/SearchBar";
 import MLStatusCard from "@/components/MLStatusCard";
+import TeamOverloadCard from "@/components/intelligence/TeamOverloadCard";
 
 const SOURCE_COLORS: Record<string, string> = {
   gmail: "#EA4335", slack: "#4A154B", jira: "#0052CC",
@@ -47,6 +50,8 @@ const SOURCE_META: Record<string, { label: string; icon: string; color: string; 
   clickup:  { label: "ClickUp",  icon: "⬆️", color: "#7B68EE", description: "Tâches & projets" },
   onedrive: { label: "OneDrive", icon: "☁️", color: "#0078D4", description: "Fichiers & docs" },
   notion:   { label: "Notion",   icon: "📝",  color: "#333333", description: "Notes & wikis" },
+  outlook:  { label: "Outlook",  icon: "📨",  color: "#0078D4", description: "Emails Microsoft" },
+  teams:    { label: "Teams",    icon: "💬",  color: "#6264A7", description: "Messages Teams" },
 };
 
 export default function DashboardOverview() {
@@ -222,10 +227,8 @@ export default function DashboardOverview() {
       ══════════════════════════════════════════════════════════ */}
       {activeTab === "overview" && (
         <div>
-          {/* Résumé exécutif */}
-          <div style={{ marginBottom: "2rem" }}>
-            <MondayBrief sinceDays={sinceDays} />
-          </div>
+          {/* État de l'organisation — OHS + Résumé exécutif */}
+          <OrganizationHealthPanel sinceDays={sinceDays} />
 
           {/* KPIs */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "1rem", marginBottom: "2rem" }}>
@@ -385,6 +388,8 @@ export default function DashboardOverview() {
             </div>
           )}
 
+          <AnomalyCard />
+          <CorrelationPanel windowDays={30} />
           <PriorityInbox sinceDays={sinceDays} />
         </div>
       )}
@@ -408,18 +413,21 @@ export default function DashboardOverview() {
           Burnout + moteur ML
       ══════════════════════════════════════════════════════════ */}
       {activeTab === "team" && (
-        <div style={{ display: "grid", gridTemplateColumns: intel.burnout ? "1fr 1fr" : "1fr", gap: "1.5rem" }}>
-          {intel.burnout
-            ? <BurnoutCard data={intel.burnout} />
-            : (
-              <div style={{ ...cardStyle, textAlign: "center", padding: "2.5rem", color: "#748cab" }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>🧘</div>
-                <div style={{ fontWeight: 600 }}>Pas de signal de surcharge détecté</div>
-                <div style={{ fontSize: 12, marginTop: 4 }}>L'équipe semble opérer normalement</div>
-              </div>
-            )
-          }
-          <MLStatusCard />
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: intel.burnout ? "1fr 1fr" : "1fr", gap: "1.5rem" }}>
+            {intel.burnout
+              ? <BurnoutCard data={intel.burnout} />
+              : (
+                <div style={{ ...cardStyle, textAlign: "center", padding: "2.5rem", color: "#748cab" }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>🧘</div>
+                  <div style={{ fontWeight: 600 }}>Pas de signal de surcharge collectif</div>
+                  <div style={{ fontSize: 12, marginTop: 4 }}>L'équipe semble opérer normalement</div>
+                </div>
+              )
+            }
+            <MLStatusCard />
+          </div>
+          <TeamOverloadCard sinceDays={sinceDays} />
         </div>
       )}
 

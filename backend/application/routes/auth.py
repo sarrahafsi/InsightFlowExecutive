@@ -14,6 +14,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/calendar.readonly",
 ]
 
 # In-memory state store for CSRF protection (use Redis in production)

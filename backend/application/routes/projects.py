@@ -666,6 +666,135 @@ Résumé en français, ton direct CEO. Commence par l'état global, signale les 
     }
 
 
+# ── Per-project OHS ──────────────────────────────────────────────────────────
+
+@router.get("/{project_id}/ohs")
+async def project_ohs(project_id: str, db: Session = Depends(get_db)):
+    """Compute a composite health score scoped to this project's signals."""
+    import datetime as _dt
+
+    p = _project_or_404(db, project_id)
+
+    # ── 1. Flatten all signals from cross-signals ─────────────────
+    signals_raw = await cross_signals(project_id, db)
+
+    all_sigs: list[dict] = []
+    for task_sig in signals_raw:
+        all_sigs.extend(task_sig.get("signals", []))
+
+    total_sigs = len(all_sigs)
+
+    # ── 2. Sentiment — use label already present in each signal ───
+    if total_sigs > 0:
+        pos = sum(1 for s in all_sigs if (s.get("sentiment") or "").upper() == "POSITIVE")
+        neu = sum(1 for s in all_sigs if (s.get("sentiment") or "").upper() in ("NEUTRAL", ""))
+        sentiment_score = max(0.0, min(100.0, (pos * 100.0 + neu * 60.0) / total_sigs))
+    else:
+        sentiment_score = 60.0
+
+    # ── 3. Burnout — query DB by the unique authors in signals ────
+    authors = list({s.get("author", "") for s in all_sigs if s.get("author")})
+    if authors:
+        since_b = _dt.datetime.utcnow() - _dt.timedelta(days=30)
+        burnout_vals = [
+            r.burnout_score
+            for r in db.query(MessageRaw.burnout_score)
+                       .filter(
+                           MessageRaw.author.in_(authors),
+                           MessageRaw.burnout_score.isnot(None),
+                           MessageRaw.timestamp >= since_b,
+                       ).all()
+            if r.burnout_score is not None
+        ]
+        if burnout_vals:
+            avg_b = sum(burnout_vals) / len(burnout_vals)
+            burnout_score = max(0.0, min(100.0, (1.0 - avg_b) * 100.0))
+        else:
+            burnout_score = 70.0
+    else:
+        burnout_score = 70.0
+
+    # ── 4. Task dimension (ClickUp) ───────────────────────────────
+    task_score = 75.0
+    clickup_stats = None
+    try:
+        resp = await clickup_summary(project_id, db)
+        clickup_stats = resp.get("stats")
+        if clickup_stats and clickup_stats.get("total", 0) > 0:
+            total_t  = clickup_stats["total"]
+            progress = clickup_stats.get("progress", 0)
+            blocked  = clickup_stats.get("blocked", 0)
+            urgent   = clickup_stats.get("urgent", 0)
+            task_score = max(0.0, min(100.0,
+                float(progress)
+                - (blocked / total_t) * 40.0
+                - (urgent  / total_t) * 20.0
+            ))
+    except Exception:
+        pass
+
+    # ── 5. Communication — after-hours ratio scoped to project signals ─
+    if all_sigs:
+        after = 0
+        counted = 0
+        for s in all_sigs:
+            raw_date = s.get("date", "")
+            if not raw_date:
+                continue
+            try:
+                ts = _dt.datetime.fromisoformat(raw_date)
+                counted += 1
+                if ts.hour < 8 or ts.hour > 20:
+                    after += 1
+            except ValueError:
+                pass
+        if counted > 0:
+            comm_score = max(0.0, min(100.0, 100.0 - (after / counted) * 100.0))
+        else:
+            comm_score = 70.0
+    else:
+        comm_score = 70.0
+
+    # ── 6. Weighted composite ─────────────────────────────────────
+    WEIGHTS = {"sentiment": 0.30, "burnout": 0.25, "tasks": 0.30, "communication": 0.15}
+    dims = {
+        "sentiment":     round(sentiment_score, 1),
+        "burnout":       round(burnout_score, 1),
+        "tasks":         round(task_score, 1),
+        "communication": round(comm_score, 1),
+    }
+    score = round(sum(dims[k] * WEIGHTS[k] for k in WEIGHTS))
+
+    if score >= 70:
+        label, color = "Sain", "#22c55e"
+    elif score >= 40:
+        label, color = "Tendu", "#f59e0b"
+    else:
+        label, color = "Critique", "#ef4444"
+
+    LABELS = {
+        "sentiment":     "Sentiment des messages liés",
+        "burnout":       "Surcharge des membres",
+        "tasks":         "Avancement des tâches",
+        "communication": "Fluidité communication",
+    }
+
+    return {
+        "project_id":    project_id,
+        "project_name":  p.name,
+        "score":         score,
+        "label":         label,
+        "color":         color,
+        "linked_msgs":   total_sigs,
+        "signals_tasks": len(signals_raw),
+        "computed_at":   _dt.datetime.utcnow().isoformat(),
+        "breakdown":     [
+            {"key": k, "label": LABELS[k], "score": dims[k], "weight": int(WEIGHTS[k] * 100)}
+            for k in WEIGHTS
+        ],
+    }
+
+
 # ── Cross-source signals ──────────────────────────────────────────────────────
 
 _STOP_WORDS = {

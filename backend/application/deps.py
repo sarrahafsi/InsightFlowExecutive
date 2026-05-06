@@ -12,6 +12,8 @@ connector_manager = ConnectorManager(
         SourceType.GMAIL:   {"use_mock": False},
         SourceType.JIRA:    {"use_mock": False},
         SourceType.CLICKUP: {"use_mock": False},
+        SourceType.TEAMS:   {"use_mock": True},
+        SourceType.OUTLOOK: {},
     }
 )
 

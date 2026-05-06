@@ -17,7 +17,7 @@ Adopte un ton professionnel et direct — comme un conseiller de confiance qui p
 Concentre-toi sur ce qui compte : risques, décisions nécessaires, signaux positifs, signaux équipe.
 Structure : 3-4 paragraphes courts. Pas de listes à puces. Pas d'en-têtes markdown. Prose claire.
 Termine par une recommandation concrète pour la semaine.
-Si tu n'as pas assez de données, dis-le honnêtement."""
+IMPORTANT : Tu DOIS rédiger le brief directement avec les données fournies. Ne pose aucune question. Ne demande pas de confirmation. Génère le texte immédiatement."""
 
 BRIEF_SYSTEM_MCP = """Tu es l'assistant IA personnel d'un CEO d'entreprise.
 Ta tâche est de rédiger un brief exécutif hebdomadaire en français.
@@ -67,43 +67,26 @@ Rédige maintenant le brief exécutif hebdomadaire."""
 async def weekly_brief(since_days: int = 7):
     """Génère un brief narratif de la semaine."""
     now    = datetime.utcnow()
-    period = f"{(now - timedelta(days=since_days)).strftime('%d/%m')} – {now.strftime('%d/%m/%Y')}"
-    stats  = compute_overview(item_store, since_days=since_days)
+    # Brief always covers 7 days regardless of dashboard filter — needs enough data for narrative
+    brief_days = max(since_days, 7)
+    period = f"{(now - timedelta(days=brief_days)).strftime('%d/%m')} – {now.strftime('%d/%m/%Y')}"
+    stats  = compute_overview(item_store, since_days=brief_days)
 
-    provider_info = get_provider_info()
-    provider_name = provider_info["provider"]
-
-    if provider_name == "azure":
-        # GPT-4o : utilise les MCP tools pour collecter les données dynamiquement
-        user_msg = (
-            f"Nous sommes le {now.strftime('%d/%m/%Y')}. "
-            f"Génère le brief exécutif de la semaine ({period}). "
-            f"Utilise tes outils pour collecter les données réelles : "
-            f"analytics, emails urgents, risques, signaux burnout."
-        )
-        brief_text = await complete(
-            system=BRIEF_SYSTEM_MCP,
-            user=user_msg,
-            use_tools=True,
-            temperature=0.4,
-            max_tokens=700,
-        )
-    else:
-        # Ollama : prompt avec stats pré-calculées
-        prompt     = _build_brief_prompt(stats, period)
-        brief_text = await complete(
-            system=BRIEF_SYSTEM,
-            user=prompt,
-            use_tools=False,
-            temperature=0.4,
-            max_tokens=700,
-        )
+    # Tous les providers utilisent les stats pré-calculées — plus fiable que les MCP tools
+    prompt     = _build_brief_prompt(stats, period)
+    brief_text = await complete(
+        system=BRIEF_SYSTEM,
+        user=prompt,
+        use_tools=False,
+        temperature=0.4,
+        max_tokens=700,
+    )
 
     return {
         "period":       period,
         "since_days":   since_days,
         "generated_at": now.isoformat(),
-        "provider":     provider_name,
+        "provider":     get_provider_info()["provider"],
         "stats_summary": {
             "total_items": stats.get("total_items", 0),
             "risk_index":  stats.get("risk_index", 0),

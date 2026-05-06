@@ -142,6 +142,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
           </Link>
 
+          {/* Calendar link */}
+          <Link href="/dashboard/calendar" style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "9px 12px", borderRadius: 10, textDecoration: "none",
+            background: path.startsWith("/dashboard/calendar") ? "rgba(240,235,216,0.12)" : "rgba(116,140,171,0.08)",
+            color: path.startsWith("/dashboard/calendar") ? "#f0ebd8" : "#c8d8e8",
+            fontSize: 13, fontWeight: path.startsWith("/dashboard/calendar") ? 600 : 500,
+            transition: "all 0.15s", marginBottom: 4,
+          }}>
+            <span style={{ fontSize: 15 }}>📅</span>
+            <span style={{ flex: 1 }}>{locale === "fr" ? "Calendrier" : "Calendar"}</span>
+          </Link>
+
           {/* Divider */}
           <div style={{ height: 1, background: "rgba(240,235,216,0.07)", margin: "4px 4px 8px" }} />
 

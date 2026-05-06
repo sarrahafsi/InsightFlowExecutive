@@ -7,6 +7,14 @@ Usage:
   Start worker:  celery -A core.celery_app worker --loglevel=info
   Start beat:    celery -A core.celery_app beat --loglevel=info
 """
+import sys
+import os
+
+# Ensure backend/ is in sys.path regardless of where Celery is launched from
+_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+
 from celery import Celery
 from celery.schedules import crontab
 
@@ -21,6 +29,7 @@ celery_app = Celery(
         "tasks.sync_tasks",
         "tasks.report_tasks",
         "tasks.orchestrate_tasks",
+        "tasks.anomaly_tasks",
     ],
 )
 
@@ -53,5 +62,10 @@ celery_app.conf.beat_schedule = {
     "burnout-check-hourly": {
         "task": "tasks.nlp_tasks.detect_burnout_signals",
         "schedule": crontab(minute=0),
+    },
+    # Détection d'anomalies Isolation Forest — chaque jour à 06h00
+    "anomaly-detection-daily": {
+        "task": "tasks.anomaly_tasks.detect_anomalies",
+        "schedule": crontab(hour=6, minute=0),
     },
 }

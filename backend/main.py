@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from application.routes import sync, items, auth, sources, analytics, actions, brief, search, ml, ask, emails, projects, onedrive, decisions, orchestration, mcp
+from application.routes import sync, items, auth, sources, analytics, actions, brief, search, ml, ask, emails, projects, onedrive, decisions, orchestration, mcp, anomaly, health, correlation, teams_auth, outlook_auth, calendar as calendar_route
 from application.deps import connector_manager, item_store
 from core.database import init_db, SessionLocal
 from integrations.connectors.schemas import DataItem, SourceType, ItemType
@@ -129,6 +129,25 @@ async def lifespan(app: FastAPI):
         finally:
             db.close()
 
+    # ── 2b. Teams mock sync (synchrone, rapide — toujours disponible) ───
+    try:
+        teams_results = await connector_manager.sync_all(
+            since=datetime.utcnow() - timedelta(days=90),
+            sources=[SourceType.TEAMS],
+        )
+        teams_items = connector_manager.collect_items(teams_results)
+        if teams_items:
+            item_store.upsert(teams_items)
+            from data.etl.loader import load_items
+            db_t = SessionLocal()
+            try:
+                load_items(teams_items, db_t, run_nlp=False)
+            finally:
+                db_t.close()
+            print(f"[startup] Teams mock: {len(teams_items)} messages chargés")
+    except Exception as e:
+        print(f"[startup] Teams mock ignoré: {e}")
+
     # ── 3. Déléguer le sync à Celery (worker séparé) ─────────
     try:
         from tasks.sync_tasks import sync_all_sources
@@ -175,9 +194,15 @@ app.include_router(ask.router,     prefix="/api")
 app.include_router(emails.router,   prefix="/api")
 app.include_router(projects.router)
 app.include_router(onedrive.router)
+app.include_router(teams_auth.router)
+app.include_router(outlook_auth.router)
 app.include_router(decisions.router, prefix="/api")
 app.include_router(orchestration.router)
 app.include_router(mcp.router)
+app.include_router(anomaly.router, prefix="/api")
+app.include_router(health.router)
+app.include_router(correlation.router)
+app.include_router(calendar_route.router)
 
 
 @app.get("/", tags=["health"])

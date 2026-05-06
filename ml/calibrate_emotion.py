@@ -10,7 +10,7 @@ Usage :
     python ml/calibrate_emotion.py
 
 Output :
-    ml/models/insightflow-emotion-v1/temperature.json
+    ml/models/insightflow-emotion-xlm-v1/temperature.json
     → {"temperature": 1.63, "ece_before": 0.18, "ece_after": 0.04}
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ from sklearn.preprocessing import LabelEncoder
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 DATASET     = os.path.join(BASE_DIR, "dataset", "insightflow_synthetic_full.csv")
-MODEL_DIR   = os.path.join(BASE_DIR, "models", "insightflow-emotion-v1")
+MODEL_DIR   = os.path.join(BASE_DIR, "models", "insightflow-emotion-xlm-v1")
 OUTPUT_FILE = os.path.join(MODEL_DIR, "temperature.json")
 
 LABELS = ["frustration", "concern", "urgency", "neutral", "satisfaction"]

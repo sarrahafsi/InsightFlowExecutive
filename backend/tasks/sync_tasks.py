@@ -109,6 +109,37 @@ def sync_slack(self, since_days: int = 1):
         raise self.retry(exc=exc, countdown=60)
 
 
+@celery_app.task(bind=True, name="tasks.sync_tasks.sync_teams", max_retries=3)
+def sync_teams(self, since_days: int = 1):
+    """Synchroniser Microsoft Teams (mock ou Graph API selon la config)."""
+    try:
+        from application.deps import connector_manager
+        from core.database import SessionLocal
+        from core.store import item_store
+        from data.etl.loader import load_items
+        from integrations.connectors.schemas import SourceType
+        import asyncio
+
+        since = datetime.utcnow() - timedelta(days=since_days)
+        results = asyncio.run(connector_manager.sync_all(since=since, sources=[SourceType.TEAMS]))
+        from integrations.connectors import ConnectorManager
+        new_items = ConnectorManager.collect_items(results)
+        item_store.upsert(new_items)
+
+        db = SessionLocal()
+        try:
+            n = load_items(new_items, db)
+            logger.info("[Sync/Teams] %d messages insérés", n)
+        finally:
+            db.close()
+
+        return {"status": "ok", "source": "teams", "inserted": len(new_items)}
+
+    except Exception as exc:
+        logger.error("[Sync/Teams] Erreur : %s", exc)
+        raise self.retry(exc=exc, countdown=60)
+
+
 @celery_app.task(name="tasks.sync_tasks.sync_all_sources")
 def sync_all_sources(since_days: int = 1):
     """Lancer la synchronisation de toutes les sources en parallèle."""
@@ -118,6 +149,7 @@ def sync_all_sources(since_days: int = 1):
         sync_gmail.s(since_days=since_days),
         sync_jira.s(since_days=since_days),
         sync_slack.s(since_days=since_days),
+        sync_teams.s(since_days=since_days),
     )
     result = job.apply_async()
     logger.info("[Sync/All] Synchronisation de toutes les sources lancée")

@@ -21,6 +21,8 @@ const SOURCE_CONFIG: Record<string, { label: string; icon: string; color: string
   jira:     { label: "Jira",     icon: "J",  color: "#0052CC" },
   clickup:  { label: "ClickUp",  icon: "⬆", color: "#7B68EE" },
   onedrive: { label: "OneDrive", icon: "☁", color: "#0078D4" },
+  teams:    { label: "Teams",    icon: "💬", color: "#6264A7" },
+  outlook:  { label: "Outlook",  icon: "📨", color: "#0078D4" },
 };
 
 const LABEL_COLORS: Record<string, string> = {
@@ -83,6 +85,7 @@ export default function SourceDashboard() {
 
   const intel     = data.intelligence ?? {};
   const isGmail   = source === "gmail" && !!data.threads;
+  const isOutlook = source === "outlook";
   const alertCount = (intel.at_risk_items?.length ?? 0) + (data.critical_alerts ?? 0);
 
   const senderSlices = isGmail
@@ -215,12 +218,35 @@ export default function SourceDashboard() {
                   subtitle={data.avg_response_hours ? "Basé sur les threads" : "Dossier envoyé requis"} />
               </>
             )}
-            {!isGmail && (
+            {isOutlook && (
+              <>
+                <KPICard title="Non lus" value={data.unread?.count ?? 0} icon="🔴"
+                  risk={(data.unread?.rate ?? 0) > 40 ? "high" : (data.unread?.rate ?? 0) > 20 ? "medium" : "low"}
+                  subtitle={`${data.unread?.rate ?? 0}% du total`} />
+                <KPICard title="Haute importance" value={data.high_importance?.count ?? 0} icon="⭐"
+                  accent="#f59e0b" subtitle={`${data.high_importance?.rate ?? 0}% du total`} />
+                <KPICard title="Avec pièces jointes" value={data.attachments?.count ?? 0} icon="📎"
+                  accent="#3e5c76" subtitle={`${data.attachments?.rate ?? 0}% du total`} />
+              </>
+            )}
+            {!isGmail && !isOutlook && (
               <KPICard title="Alertes escalade" value={data.critical_alerts} icon="🚨"
                 risk={data.critical_alerts > 5 ? "high" : data.critical_alerts > 2 ? "medium" : "low"}
                 subtitle="Mots clés d'urgence" />
             )}
+            {isOutlook && (
+              <KPICard title="Escalades" value={data.escalation?.count ?? 0} icon="🚨"
+                risk={(data.escalation?.count ?? 0) > 5 ? "high" : (data.escalation?.count ?? 0) > 2 ? "medium" : "low"}
+                subtitle="Urgence · ASAP · Critique" />
+            )}
           </div>
+
+          {/* Signal Panel — tableau de bord des signaux IA */}
+          {intel.business_labels && (
+            <div style={{ marginBottom: "1.5rem" }}>
+              <SignalPanel data={intel} />
+            </div>
+          )}
 
           {/* Charts Row — Activity + Sentiment */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
@@ -298,6 +324,27 @@ export default function SourceDashboard() {
       ══════════════════════════════════════════════════════════ */}
       {activeTab === "alerts" && (
         <div>
+          {/* Risk KPIs (Outlook) */}
+          {isOutlook && (
+            <>
+              <div style={{ fontSize: 11, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 600, marginBottom: 10 }}>
+                Risques &amp; Alertes Outlook
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "1rem", marginBottom: "1.75rem" }}>
+                <KPICard title="Escalades" value={data.escalation?.count ?? 0} icon="🚨"
+                  risk={(data.escalation?.count ?? 0) > 5 ? "high" : (data.escalation?.count ?? 0) > 2 ? "medium" : "low"}
+                  subtitle="urgent · ASAP · critical" />
+                <KPICard title="Non lus" value={data.unread?.count ?? 0} icon="🔴"
+                  risk={(data.unread?.rate ?? 0) > 40 ? "high" : (data.unread?.rate ?? 0) > 20 ? "medium" : "low"}
+                  subtitle={`${data.unread?.rate ?? 0}% du total`} />
+                <KPICard title="Haute importance" value={data.high_importance?.count ?? 0} icon="⭐"
+                  accent="#f59e0b" subtitle="High · Urgent" />
+                <KPICard title="Expéditeurs uniques" value={data.unique_senders ?? 0} icon="👤"
+                  accent="#3e5c76" subtitle="Sources distinctes" />
+              </div>
+            </>
+          )}
+
           {/* Risk KPIs (Gmail) */}
           {isGmail && (
             <>
@@ -380,8 +427,26 @@ export default function SourceDashboard() {
             </div>
           )}
 
+          {/* Outlook: Escalation items */}
+          {isOutlook && (data.escalation?.items?.length ?? 0) > 0 && (
+            <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(239,68,68,0.2)", marginBottom: "1.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                <span>🚨</span>
+                <div style={{ fontSize: 12, color: "#ef4444", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>
+                  Emails d&apos;escalade Outlook — action requise
+                </div>
+              </div>
+              {data.escalation.items.map((item: any, i: number) => (
+                <div key={i} style={{ padding: "10px 14px", background: "#fef2f2", borderRadius: 10, marginBottom: 8, borderLeft: "3px solid #ef4444" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0d1321", marginBottom: 2 }}>{item.title}</div>
+                  <div style={{ fontSize: 11, color: "#748cab" }}>{item.author} · {new Date(item.timestamp).toLocaleString("fr-FR")}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Empty state */}
-          {!intel.business_labels && !intel.at_risk_items?.length && !isGmail && (
+          {!intel.business_labels && !intel.at_risk_items?.length && !isGmail && !isOutlook && (
             <div style={{ textAlign: "center", padding: "3rem", color: "#748cab" }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
               <div style={{ fontSize: 14 }}>Aucune alerte détectée sur {config.label}</div>

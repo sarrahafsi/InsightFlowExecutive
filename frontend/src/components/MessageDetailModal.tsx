@@ -51,7 +51,36 @@ export default function MessageDetailModal({
   const [sent,         setSent]         = useState(false);
   const [error,        setError]        = useState("");
 
+  // Correction state (continuous learning)
+  const [showCorrection,   setShowCorrection]   = useState(false);
+  const [corrBusiness,     setCorrBusiness]     = useState(item.business_label ?? "");
+  const [corrSentiment,    setCorrSentiment]    = useState(item.sentiment_label ?? "");
+  const [corrTopic,        setCorrTopic]        = useState(item.topic ?? "");
+  const [corrSaving,       setCorrSaving]       = useState(false);
+  const [corrSaved,        setCorrSaved]        = useState(false);
+
   const isGmail = item.source === "gmail";
+
+  const BUSINESS_LABELS  = ["Blocked","Urgent","Risk","Conflict","Overload","Concern","Progress","Neutral Update"];
+  const SENTIMENT_LABELS = ["POSITIVE","NEUTRAL","NEGATIVE"];
+  const TOPICS           = ["deadline","budget","hiring","technical","customer","product","strategy","conflict","other"];
+
+  async function handleSaveCorrection() {
+    setCorrSaving(true);
+    try {
+      await API.patch(`/api/items/${item.id}/correct`, {
+        business_label:  corrBusiness  || undefined,
+        sentiment_label: corrSentiment || undefined,
+        topic:           corrTopic     || undefined,
+      });
+      setCorrSaved(true);
+      setTimeout(() => { setCorrSaved(false); setShowCorrection(false); }, 1500);
+    } catch {
+      // silent — label stays as-is
+    } finally {
+      setCorrSaving(false);
+    }
+  }
 
   async function handleGenerateDraft() {
     setGenerating(true);
@@ -148,6 +177,63 @@ export default function MessageDetailModal({
             <span style={{ padding: "4px 12px", borderRadius: 20, fontSize: 11, background: "#ede9fe", color: "#6d28d9" }}>📅 week-end</span>
           )}
         </div>
+
+        {/* Correction labels — continuous learning */}
+        <div style={{ padding: "0.75rem 1.75rem", borderBottom: "1px solid rgba(62,92,118,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 11, color: "#748cab" }}>Labels incorrects ?</span>
+          <button
+            onClick={() => { setShowCorrection(v => !v); setCorrSaved(false); }}
+            style={{ fontSize: 11, padding: "3px 12px", borderRadius: 20, border: "1px solid rgba(62,92,118,0.2)", background: showCorrection ? "#f0f4f8" : "transparent", color: "#3e5c76", cursor: "pointer" }}
+          >
+            ✏️ Corriger
+          </button>
+        </div>
+
+        {showCorrection && (
+          <div style={{ padding: "1rem 1.75rem", background: "#f8fafc", borderBottom: "1px solid rgba(62,92,118,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#3e5c76", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>
+              Corriger les labels IA
+            </div>
+
+            {/* Business label */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 11, color: "#748cab", width: 80, flexShrink: 0 }}>Priorité</span>
+              <select value={corrBusiness} onChange={e => setCorrBusiness(e.target.value)}
+                style={{ flex: 1, fontSize: 12, padding: "5px 8px", borderRadius: 8, border: "1px solid rgba(62,92,118,0.2)", color: "#0d1321", background: "#fff" }}>
+                <option value="">— inchangé —</option>
+                {BUSINESS_LABELS.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+
+            {/* Sentiment */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 11, color: "#748cab", width: 80, flexShrink: 0 }}>Sentiment</span>
+              <select value={corrSentiment} onChange={e => setCorrSentiment(e.target.value)}
+                style={{ flex: 1, fontSize: 12, padding: "5px 8px", borderRadius: 8, border: "1px solid rgba(62,92,118,0.2)", color: "#0d1321", background: "#fff" }}>
+                <option value="">— inchangé —</option>
+                {SENTIMENT_LABELS.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+
+            {/* Topic */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 11, color: "#748cab", width: 80, flexShrink: 0 }}>Sujet</span>
+              <select value={corrTopic} onChange={e => setCorrTopic(e.target.value)}
+                style={{ flex: 1, fontSize: 12, padding: "5px 8px", borderRadius: 8, border: "1px solid rgba(62,92,118,0.2)", color: "#0d1321", background: "#fff" }}>
+                <option value="">— inchangé —</option>
+                {TOPICS.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+
+            <button
+              onClick={handleSaveCorrection}
+              disabled={corrSaving || corrSaved}
+              style={{ alignSelf: "flex-end", padding: "7px 18px", borderRadius: 10, border: "none", background: corrSaved ? "#22c55e" : "#3e5c76", color: "#fff", fontSize: 12, fontWeight: 600, cursor: corrSaving ? "not-allowed" : "pointer" }}
+            >
+              {corrSaved ? "✓ Sauvegardé" : corrSaving ? "..." : "Sauvegarder"}
+            </button>
+          </div>
+        )}
 
         {/* Business reason */}
         {item.business_reason && (

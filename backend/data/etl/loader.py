@@ -42,12 +42,13 @@ def get_nlp_pipeline():
 # ── Helpers ──────────────────────────────────────────────────
 
 def _build_source_meta(item: DataItem) -> dict:
-    """Extrait les métadonnées source-specific (Jira KPIs, etc.)."""
+    """Extrait les métadonnées source-specific (Jira KPIs, Teams channels, etc.)."""
     source_meta: dict = {}
     if item.metadata:
         for k in ("key", "status", "priority", "issue_type", "story_points",
                   "assignee", "assignee_name", "reporter", "created",
-                  "cycle_time_days", "channel", "channel_id"):
+                  "cycle_time_days", "channel", "channel_id",
+                  "team_id", "team_name", "channel_name", "importance"):
             if item.metadata.get(k) is not None:
                 source_meta[k] = item.metadata[k]
     return source_meta

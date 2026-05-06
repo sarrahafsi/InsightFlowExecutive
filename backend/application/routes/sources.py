@@ -39,12 +39,12 @@ REGISTRY: dict[str, dict] = {
     "outlook": {
         "name": "Outlook", "icon": "📨", "color": "#0078D4",
         "auth_type": "oauth2", "description": "Emails Microsoft",
-        "available": False, "coming_soon": True, "category": "Communication"
+        "available": True, "coming_soon": False, "category": "Communication"
     },
     "teams": {
         "name": "Teams", "icon": "💬", "color": "#6264A7",
         "auth_type": "oauth2", "description": "Messages Microsoft Teams",
-        "available": False, "coming_soon": True, "category": "Communication"
+        "available": True, "coming_soon": False, "category": "Communication"
     },
     "slack": {
         "name": "Slack", "icon": "💼", "color": "#4A154B",
@@ -257,12 +257,29 @@ async def sources_status(store: Annotated[ItemStore, Depends(get_store)]):
         "slack":   SourceType.SLACK,
         "jira":    SourceType.JIRA,
         "clickup": SourceType.CLICKUP,
+        "teams":   SourceType.TEAMS,
+        "outlook": SourceType.OUTLOOK,
     }
+    # Teams connector config — mock mode means always connected
+    try:
+        from application.deps import connector_manager
+        teams_connector = connector_manager._connectors.get(SourceType.TEAMS)
+        teams_mock_mode = teams_connector.config.get("use_mock", True) if teams_connector else True
+    except Exception:
+        teams_mock_mode = True
+
     result = []
     for key, data in REGISTRY.items():
         source_type = SOURCE_TYPES.get(key)
         count = len(store.all(source=source_type, limit=10_000)) if source_type else 0
         last_sync = store.last_sync(source_type).isoformat() if (source_type and store.last_sync(source_type)) else None
+
+        # Teams: always connected (mock data is always available)
+        if key == "teams":
+            connected = True
+        else:
+            connected = count > 0
+
         result.append({
             "key":        key,
             "name":       data["name"],
@@ -271,7 +288,7 @@ async def sources_status(store: Annotated[ItemStore, Depends(get_store)]):
             "category":   data["category"],
             "available":  data["available"],
             "coming_soon": data.get("coming_soon", False),
-            "connected":  count > 0,
+            "connected":  connected,
             "items_count": count,
             "last_sync":  last_sync,
         })
@@ -404,3 +421,102 @@ async def _background_clickup_sync():
                 db.close()
     except Exception as e:
         logging.getLogger(__name__).warning("[ClickUp] Background sync failed: %s", e)
+
+
+# ── Teams ─────────────────────────────────────────────────────────────────────
+
+@router.get("/teams/status")
+async def teams_status():
+    """Check whether Teams is authenticated (real or mock mode)."""
+    try:
+        db = SessionLocal()
+        try:
+            row = db.query(SourceConfig).filter(SourceConfig.source == "teams").first()
+            if row:
+                cfg = row.config if isinstance(row.config, dict) else json.loads(row.config)
+                return {
+                    "connected": True,
+                    "mode": "real",
+                    "refreshed_at": cfg.get("refreshed_at"),
+                    "connect_url": "/auth/teams/connect",
+                }
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return {
+        "connected": False,
+        "mode": "mock",
+        "message": "Mock data active. Configure TEAMS_CLIENT_ID in .env and visit /auth/teams/connect to use real data.",
+        "connect_url": "/auth/teams/connect",
+    }
+
+
+@router.post("/teams/sync")
+async def teams_sync(background_tasks: BackgroundTasks):
+    """Trigger a Teams sync (uses mock or real depending on auth state)."""
+    from application.routes.teams_auth import _background_teams_sync
+    background_tasks.add_task(_background_teams_sync)
+    return {"message": "Teams sync triggered in background"}
+
+
+# ── Outlook ───────────────────────────────────────────────────────────────────
+
+@router.get("/outlook/status")
+async def outlook_status():
+    try:
+        db = SessionLocal()
+        try:
+            row = db.query(SourceConfig).filter(SourceConfig.source == "outlook").first()
+            if row:
+                cfg = row.config if isinstance(row.config, dict) else json.loads(row.config)
+                return {"connected": True, "refreshed_at": cfg.get("refreshed_at"), "connect_url": "/auth/outlook/connect"}
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return {"connected": False, "connect_url": "/auth/outlook/connect"}
+
+
+@router.post("/outlook/sync")
+async def outlook_sync(background_tasks: BackgroundTasks):
+    from application.routes.outlook_auth import _background_outlook_sync
+    background_tasks.add_task(_background_outlook_sync)
+    return {"message": "Outlook sync triggered in background"}
+
+
+@router.delete("/outlook/disconnect", status_code=204)
+async def outlook_disconnect_source():
+    db = SessionLocal()
+    try:
+        db.query(SourceConfig).filter(SourceConfig.source == "outlook").delete()
+        db.commit()
+    finally:
+        db.close()
+    try:
+        from application.deps import connector_manager
+        connector = connector_manager._connectors.get(SourceType.OUTLOOK)
+        if connector:
+            connector._authenticated = False
+    except Exception:
+        pass
+
+
+@router.delete("/teams/disconnect", status_code=204)
+async def teams_disconnect_source():
+    """Remove Teams token from DB and switch to mock mode."""
+    db = SessionLocal()
+    try:
+        db.query(SourceConfig).filter(SourceConfig.source == "teams").delete()
+        db.commit()
+    finally:
+        db.close()
+    try:
+        from application.deps import connector_manager
+        from integrations.connectors.schemas import SourceType as ST
+        connector = connector_manager._connectors.get(ST.TEAMS)
+        if connector:
+            connector.config["use_mock"] = True
+            connector._authenticated = False
+    except Exception:
+        pass

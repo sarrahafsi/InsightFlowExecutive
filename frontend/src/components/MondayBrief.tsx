@@ -63,7 +63,7 @@ export default function MondayBrief({ sinceDays = 7 }: { sinceDays?: number }) {
             {[
               { label: t.brief_stat_messages, value: brief.stats_summary?.total_items },
               { label: t.brief_stat_risk, value: `${brief.stats_summary?.risk_index}/100` },
-              { label: t.brief_stat_climate, value: brief.stats_summary?.climate_label },
+              { label: t.brief_stat_climate, value: brief.stats_summary?.climate },
               { label: t.brief_stat_positive, value: `${brief.stats_summary?.sentiment?.positive ?? 0}%` },
             ].map(s => (
               <div key={s.label} style={{ background: "rgba(240,235,216,0.1)", borderRadius: 10, padding: "8px 14px", border: "1px solid rgba(240,235,216,0.15)" }}>

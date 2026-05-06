@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import API from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import ProjectOHSCard from "@/components/intelligence/ProjectOHSCard";
 
 type Tab = "overview" | "activity" | "plans" | "teams" | "notes" | "files" | "preferences";
 
@@ -447,14 +448,13 @@ export default function ProjectPage() {
           </div>
           <div style={{ display: "flex", gap: 20, flexShrink: 0 }}>
             {[
-              { icon: "📝", val: project.notes_count, label: t.proj_stat_notes + "s" },
-              { icon: "📁", val: project.files_count, label: t.proj_stat_files + "s" },
-              { icon: "👥", val: project.members.length, label: t.proj_stat_members + "s" },
+              { val: project.notes_count, label: t.proj_stat_notes + "s" },
+              { val: project.files_count, label: t.proj_stat_files + "s" },
+              { val: project.members.length, label: t.proj_stat_members + "s" },
             ].map(s => (
               <div key={s.label} style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 18, marginBottom: 2 }}>{s.icon}</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#0d1321", lineHeight: 1 }}>{s.val}</div>
-                <div style={{ fontSize: 10, color: "#748cab", marginTop: 2 }}>{s.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#0d1321", lineHeight: 1, fontFamily: "DM Serif Display, serif" }}>{s.val}</div>
+                <div style={{ fontSize: 10, color: "#748cab", marginTop: 3, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
               </div>
             ))}
           </div>
@@ -480,8 +480,7 @@ export default function ProjectPage() {
               transition: "all 0.18s",
             }}
           >
-            <span style={{ fontSize: 13 }}>{t2.icon}</span>
-            {t2.label}
+              {t2.label}
           </button>
         ))}
       </div>
@@ -522,6 +521,9 @@ export default function ProjectPage() {
                     <div style={{ fontSize: 24, fontWeight: 700, color: overview.climate.color }}>{overview.risk_score}<span style={{ fontSize: 13, fontWeight: 400 }}>/100</span></div>
                   </div>
                 </div>
+
+                {/* Project OHS */}
+                <ProjectOHSCard projectId={id} />
 
                 {/* Stat cards */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.875rem" }}>

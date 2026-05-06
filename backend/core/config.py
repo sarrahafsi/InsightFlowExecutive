@@ -37,6 +37,18 @@ class Settings(BaseSettings):
     onedrive_tenant:        str = "common"
     onedrive_redirect_uri:  str = "http://localhost:8000/auth/onedrive/callback"
 
+    # Microsoft Teams (same Azure app as OneDrive or a separate one)
+    teams_client_id:     str = ""
+    teams_client_secret: str = ""
+    teams_tenant:        str = "common"
+    teams_redirect_uri:  str = "http://localhost:8000/auth/teams/callback"
+
+    # Microsoft Outlook Mail (can reuse the same Azure app as Teams)
+    outlook_client_id:     str = ""
+    outlook_client_secret: str = ""
+    outlook_tenant:        str = "common"
+    outlook_redirect_uri:  str = "http://localhost:8000/auth/outlook/callback"
+
     # Celery / Redis
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/0"

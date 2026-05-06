@@ -752,3 +752,35 @@ def compute_generic(store: ItemStore, source_type: SourceType, since_days: int =
         "computed_at":       now.isoformat(),
         "intelligence":      intelligence,
     }
+
+
+# ─────────────────────────────────────────────────────────
+# Outlook — enriched email analytics
+# ─────────────────────────────────────────────────────────
+
+def compute_outlook(store: ItemStore, since_days: int = 30) -> dict:
+    base = compute_generic(store, SourceType.OUTLOOK, since_days)
+
+    now = datetime.utcnow()
+    since = now - timedelta(days=since_days)
+    items = store.all(source=SourceType.OUTLOOK, since=since, limit=10_000)
+    total = max(len(items), 1)
+
+    unread_count    = sum(1 for i in items if not (i.metadata or {}).get("is_read", True))
+    high_count      = sum(1 for i in items if (i.metadata or {}).get("importance", "normal") in ("high", "urgent"))
+    attachment_count = sum(1 for i in items if (i.metadata or {}).get("has_attachments", False))
+
+    escalation_items = [
+        {"title": i.title, "author": i.author, "timestamp": i.timestamp.isoformat()}
+        for i in items
+        if has_escalation(f"{i.title} {i.content}")
+    ][:10]
+
+    base.update({
+        "unread":      {"count": unread_count,    "rate": round(unread_count    / total * 100)},
+        "high_importance": {"count": high_count,  "rate": round(high_count      / total * 100)},
+        "attachments": {"count": attachment_count, "rate": round(attachment_count / total * 100)},
+        "escalation":  {"count": len(escalation_items), "items": escalation_items},
+        "unique_senders": len({i.author for i in items if i.author}),
+    })
+    return base

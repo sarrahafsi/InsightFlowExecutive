@@ -54,7 +54,7 @@ async def search(
     limit: int = Query(30, ge=1, le=100),
 ):
     """Recherche full-text + filtres NLP sur les messages."""
-    since = datetime.utcnow() - timedelta(days=since_days)
+    since = _since_from_days(since_days)
     items = item_store.all(since=since, limit=5000)
 
     q_lower = q.lower().strip()
@@ -104,10 +104,18 @@ URGENCY_SCORE = {
 SENTIMENT_SCORE = {"NEGATIVE": 3, "NEUTRAL": 1, "POSITIVE": 0}
 EMOTION_SCORE   = {"frustration": 3, "urgency": 3, "concern": 2, "neutral": 0, "satisfaction": 0}
 
+def _since_from_days(since_days: int) -> datetime:
+    """since_days=1 → minuit UTC aujourd'hui ; sinon → il y a N jours glissants."""
+    now = datetime.utcnow()
+    if since_days == 1:
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return now - timedelta(days=since_days)
+
+
 @router.get("/priority")
 async def priority_inbox(since_days: int = 7, limit: int = 10, source: str = ""):
     """Top messages prioritaires à lire aujourd'hui — classés par score IA."""
-    since = datetime.utcnow() - timedelta(days=since_days)
+    since = _since_from_days(since_days)
     items = item_store.all(since=since, limit=2000)
     if source:
         items = [i for i in items if i.source == source]

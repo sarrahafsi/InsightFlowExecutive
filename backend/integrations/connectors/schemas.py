@@ -9,6 +9,8 @@ class SourceType(str, Enum):
     GMAIL = "gmail"
     JIRA = "jira"
     CLICKUP = "clickup"
+    TEAMS = "teams"
+    OUTLOOK = "outlook"
 
 
 class ItemType(str, Enum):

@@ -214,3 +214,20 @@ class ProjectActivity(Base):
     created_at = Column(TIMESTAMP,   default=datetime.utcnow)
 
     project    = relationship("Project", back_populates="activities")
+
+
+class AnomalyEvent(Base):
+    __tablename__ = "anomaly_events"
+
+    id              = Column(Integer,     primary_key=True, autoincrement=True)
+    user_id         = Column(String(255), nullable=False, default="default")
+    source          = Column(String(50),  nullable=False)   # gmail | jira | slack | all
+    metric          = Column(String(100), nullable=False)   # nb_messages | nb_blocked | nb_night_msgs ...
+    current_value   = Column(Float,       nullable=False)
+    baseline_value  = Column(Float,       nullable=False)
+    anomaly_score   = Column(Float,       nullable=False)   # Isolation Forest score (négatif = plus anormal)
+    severity        = Column(String(20),  nullable=False)   # low | medium | high
+    description     = Column(Text)
+    detected_at     = Column(TIMESTAMP,   default=datetime.utcnow)
+    window_days     = Column(Integer,     default=7)        # fenêtre d'observation utilisée
+    is_read         = Column(Boolean,     default=False)
