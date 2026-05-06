@@ -15,7 +15,7 @@ Usage:
     # Sentiment — RoBERTa (English specialist)
     python ml/finetune.py --task sentiment --model roberta --lang en
 
-    # Emotion — j-hartmann distilRoBERTa
+    # Emotion — XLM-RoBERTa multilingue (FR+EN)
     python ml/finetune.py --task emotion --lang full
 
 Google Colab setup:
@@ -26,7 +26,7 @@ Google Colab setup:
 Outputs saved to ml/models/:
     insightflow-sentiment-xlm-v1/
     insightflow-sentiment-roberta-v1/
-    insightflow-emotion-v1/
+    insightflow-emotion-xlm-v1/
 """
 
 import argparse
@@ -47,7 +47,9 @@ SENTIMENT_LABEL2ID = {"NEGATIVE": 0, "NEUTRAL": 1, "POSITIVE": 2}
 SENTIMENT_ID2LABEL = {0: "NEGATIVE", 1: "NEUTRAL", 2: "POSITIVE"}
 
 # ── Emotion model ──────────────────────────────────────────────
-EMOTION_MODEL = "j-hartmann/emotion-english-distilroberta-base"
+# XLM-RoBERTa multilingue pré-entraîné sur émotions (anger/fear/joy/sadness)
+# Avantage : multilingue FR+EN + déjà émotion-aware avant notre fine-tuning
+EMOTION_MODEL = "MilaNLProc/xlm-emo-t"
 
 EMOTION_LABEL2ID = {
     "frustration":  0,
@@ -305,7 +307,7 @@ def finetune(model_key: str, lang: str, task: str = "sentiment"):
 # ── Emotion fine-tuning ───────────────────────────────────────
 
 def finetune_emotion(lang: str = "full"):
-    """Fine-tune j-hartmann distilRoBERTa on our 5 business emotion classes."""
+    """Fine-tune XLM-RoBERTa multilingue (FR+EN) on our 5 business emotion classes."""
     import torch
     from transformers import (
         AutoTokenizer, AutoModelForSequenceClassification,
@@ -315,12 +317,12 @@ def finetune_emotion(lang: str = "full"):
     from datasets import Dataset
     import evaluate
 
-    output_name = "insightflow-emotion-v1"
+    output_name = "insightflow-emotion-xlm-v1"
     output_dir  = os.path.join(MODELS_DIR, output_name)
 
     print(f"\n{'='*65}")
     print(f"  Fine-tuning: {EMOTION_MODEL}")
-    print(f"  Task       : emotion (5 classes)")
+    print(f"  Task       : emotion (5 classes) — multilingue FR+EN")
     print(f"  Language   : {lang}")
     print(f"  Output     : {output_dir}")
     print(f"{'='*65}\n")

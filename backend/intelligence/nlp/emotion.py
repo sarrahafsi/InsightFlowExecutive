@@ -1,11 +1,12 @@
 """
 Emotion Processor — 3-Level Pipeline
 =====================================
-Niveau 1 : DistilRoBERTa fine-tuné (insightflow-emotion-v1)
+Niveau 1 : distilRoBERTa fine-tuné (insightflow-emotion-v1)
 Niveau 2 : Temperature Scaling — calibration des scores (Guo et al. 2017)
 Niveau 3 : Ollama LLM arbitre — si score calibré < seuil
 
 Labels business : frustration | concern | urgency | neutral | satisfaction
+Langues supportées : FR + EN (XLM-RoBERTa multilingue)
 """
 from __future__ import annotations
 
@@ -22,8 +23,9 @@ from .base import BaseProcessor, EnrichedItem
 logger = logging.getLogger(__name__)
 
 _BACKEND_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_LOCAL_MODEL  = os.path.join(_BACKEND_DIR, "..", "ml", "models", "insightflow-emotion-v1")
-_REMOTE_MODEL = "j-hartmann/emotion-english-distilroberta-base"
+_LOCAL_MODEL  = os.path.join(_BACKEND_DIR, "..", "ml", "models", "insightflow-emotion-xlm-v1")
+# Fallback dev uniquement — XLM-RoBERTa multilingue pré-entraîné sur émotions
+_REMOTE_MODEL = "MilaNLProc/xlm-emo-t"
 _TEMP_FILE    = os.path.join(_LOCAL_MODEL, "temperature.json")
 
 EMOTION_MODEL = _LOCAL_MODEL if os.path.isdir(_LOCAL_MODEL) else _REMOTE_MODEL
@@ -34,15 +36,14 @@ LABELS = ["frustration", "concern", "urgency", "neutral", "satisfaction"]
 # Seuil de confiance calibrée — en dessous → Ollama prend le relais
 CONFIDENCE_THRESHOLD = 0.38
 
-# Mapping fallback HuggingFace → labels business
+# Mapping remote fallback (MilaNLProc/xlm-emo-t) → labels business
+# Utilisé uniquement si le modèle local fine-tuné n'existe pas encore
+# xlm-emo-t labels : anger | fear | joy | sadness
 _EMOTION_MAP_FALLBACK = {
-    "anger":    "frustration",
-    "disgust":  "frustration",
-    "fear":     "concern",
-    "sadness":  "concern",
-    "joy":      "satisfaction",
-    "surprise": "urgency",
-    "neutral":  "neutral",
+    "anger":   "frustration",
+    "fear":    "concern",
+    "joy":     "satisfaction",
+    "sadness": "concern",   # sadness → concern (label business le plus proche)
 }
 _FINE_TUNED_LABELS = set(LABELS)
 
