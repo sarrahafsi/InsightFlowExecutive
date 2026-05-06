@@ -17,7 +17,7 @@ from .base import BaseProcessor, EnrichedItem
 logger = logging.getLogger(__name__)
 
 # Chemin vers le modèle fine-tuné local
-_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _LOCAL_MODEL  = os.path.join(_BACKEND_DIR, "..", "ml", "models", "insightflow-sentiment-xlm-v1")
 _REMOTE_MODEL = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
 

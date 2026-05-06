@@ -22,7 +22,7 @@ from .base import BaseProcessor, EnrichedItem
 
 logger = logging.getLogger(__name__)
 
-_BACKEND_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_BACKEND_DIR  = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _LOCAL_MODEL  = os.path.join(_BACKEND_DIR, "..", "ml", "models", "insightflow-emotion-xlm-v1")
 # Fallback — modèle fine-tuné hébergé sur HuggingFace Hub
 _REMOTE_MODEL = "sarahaf123/insightflow-emotion-xlm-v1"
