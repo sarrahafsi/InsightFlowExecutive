@@ -1,7 +1,7 @@
 """
 Emotion Processor — 3-Level Pipeline
 =====================================
-Niveau 1 : distilRoBERTa fine-tuné (insightflow-emotion-v1)
+Niveau 1 : distilRoBERTa fine-tuné (insightflow-emotion-xlm-v1)
 Niveau 2 : Temperature Scaling — calibration des scores (Guo et al. 2017)
 Niveau 3 : Ollama LLM arbitre — si score calibré < seuil
 
@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 
 _BACKEND_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _LOCAL_MODEL  = os.path.join(_BACKEND_DIR, "..", "ml", "models", "insightflow-emotion-xlm-v1")
-# Fallback dev uniquement — XLM-RoBERTa multilingue pré-entraîné sur émotions
-_REMOTE_MODEL = "MilaNLProc/xlm-emo-t"
+# Fallback — modèle fine-tuné hébergé sur HuggingFace Hub
+_REMOTE_MODEL = "sarahaf123/insightflow-emotion-xlm-v1"
 _TEMP_FILE    = os.path.join(_LOCAL_MODEL, "temperature.json")
 
 EMOTION_MODEL = _LOCAL_MODEL if os.path.isdir(_LOCAL_MODEL) else _REMOTE_MODEL
