@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads")
 
 from core.database import get_db, SessionLocal
-from core.models import Project, ProjectMember, ProjectSource, ProjectNote, ProjectFile, ProjectActivity, SourceConfig, MessageRaw
+from core.models import Project, ProjectMember, ProjectSource, ProjectNote, ProjectFile, ProjectActivity, SourceConfig, MessageRaw, User
+from core.security import get_current_user, require_ceo
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -65,8 +66,11 @@ def _log(db: Session, project_id: str, actor: str, action: str, detail: str = ""
     ))
 
 
-def _project_or_404(db: Session, project_id: str) -> Project:
-    p = db.query(Project).filter(Project.id == project_id).first()
+def _project_or_404(db: Session, project_id: str, org_id: str | None = None) -> Project:
+    q = db.query(Project).filter(Project.id == project_id)
+    if org_id is not None:
+        q = q.filter(Project.org_id == org_id)
+    p = q.first()
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
     return p
@@ -75,50 +79,79 @@ def _project_or_404(db: Session, project_id: str) -> Project:
 # ── Projects ─────────────────────────────────────────────────────────────────
 
 @router.get("")
-def list_projects(db: Session = Depends(get_db)):
-    projects = db.query(Project).order_by(Project.created_at.desc()).all()
-    return [_serialize_project(p) for p in projects]
+def list_projects(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(Project).filter(Project.org_id == current_user.org_id)
+    if current_user.role == "pm":
+        # PM sees only projects where they appear as a member (matched by email)
+        member_project_ids = (
+            db.query(ProjectMember.project_id)
+            .filter(ProjectMember.email == current_user.email)
+            .subquery()
+        )
+        q = q.filter(Project.id.in_(member_project_ids))
+    return [_serialize_project(p) for p in q.order_by(Project.created_at.desc()).all()]
 
 
 @router.post("", status_code=201)
-def create_project(body: ProjectCreate, db: Session = Depends(get_db)):
+def create_project(
+    body: ProjectCreate,
+    current_user: User = Depends(require_ceo),
+    db: Session = Depends(get_db),
+):
     project = Project(
         id=str(uuid4()),
+        org_id=current_user.org_id,
         name=body.name,
         description=body.description,
         color=body.color,
-        created_by=body.created_by,
+        created_by=current_user.full_name,
     )
     db.add(project)
-    _log(db, project.id, body.created_by or "CEO", "created_project", f"Project '{body.name}' created")
+    _log(db, project.id, current_user.full_name, "created_project", f"Project '{body.name}' created")
     db.commit()
     db.refresh(project)
     return _serialize_project(project)
 
 
 @router.get("/{project_id}")
-def get_project(project_id: str, db: Session = Depends(get_db)):
-    return _serialize_project(_project_or_404(db, project_id))
+def get_project(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return _serialize_project(_project_or_404(db, project_id, current_user.org_id))
 
 
 @router.patch("/{project_id}")
-def update_project(project_id: str, body: ProjectUpdate, db: Session = Depends(get_db)):
-    p = _project_or_404(db, project_id)
+def update_project(
+    project_id: str,
+    body: ProjectUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    p = _project_or_404(db, project_id, current_user.org_id)
     if body.name        is not None: p.name        = body.name
     if body.description is not None: p.description = body.description
     if body.color       is not None: p.color       = body.color
     if body.status      is not None: p.status      = body.status
     if body.progress    is not None: p.progress    = max(0, min(100, body.progress))
     p.updated_at = datetime.utcnow()
-    _log(db, project_id, "CEO", "updated_project", f"Project updated")
+    _log(db, project_id, current_user.full_name, "updated_project", "Project updated")
     db.commit()
     db.refresh(p)
     return _serialize_project(p)
 
 
 @router.delete("/{project_id}", status_code=204)
-def delete_project(project_id: str, db: Session = Depends(get_db)):
-    p = _project_or_404(db, project_id)
+def delete_project(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    p = _project_or_404(db, project_id, current_user.org_id)
     db.delete(p)
     db.commit()
 
@@ -126,18 +159,29 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
 # ── Members ───────────────────────────────────────────────────────────────────
 
 @router.post("/{project_id}/members", status_code=201)
-def add_member(project_id: str, body: MemberAdd, db: Session = Depends(get_db)):
-    _project_or_404(db, project_id)
+def add_member(
+    project_id: str,
+    body: MemberAdd,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _project_or_404(db, project_id, current_user.org_id)
     member = ProjectMember(project_id=project_id, name=body.name, email=body.email, role=body.role)
     db.add(member)
-    _log(db, project_id, "CEO", "added_member", f"{body.name} ({body.role})")
+    _log(db, project_id, current_user.full_name, "added_member", f"{body.name} ({body.role})")
     db.commit()
     db.refresh(member)
     return {"id": member.id, "name": member.name, "email": member.email, "role": member.role}
 
 
 @router.delete("/{project_id}/members/{member_id}", status_code=204)
-def remove_member(project_id: str, member_id: int, db: Session = Depends(get_db)):
+def remove_member(
+    project_id: str,
+    member_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _project_or_404(db, project_id, current_user.org_id)
     m = db.query(ProjectMember).filter(
         ProjectMember.id == member_id,
         ProjectMember.project_id == project_id,
@@ -151,18 +195,24 @@ def remove_member(project_id: str, member_id: int, db: Session = Depends(get_db)
 # ── Sources ───────────────────────────────────────────────────────────────────
 
 @router.post("/{project_id}/sources", status_code=201)
-def link_source(project_id: str, body: SourceLink, db: Session = Depends(get_db)):
-    _project_or_404(db, project_id)
+def link_source(
+    project_id: str,
+    body: SourceLink,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _project_or_404(db, project_id, current_user.org_id)
     src = ProjectSource(project_id=project_id, source_type=body.source_type, config=body.config)
     db.add(src)
-    _log(db, project_id, "CEO", "linked_source", f"{body.source_type} linked")
+    _log(db, project_id, current_user.full_name, "linked_source", f"{body.source_type} linked")
     db.commit()
     db.refresh(src)
     return {"id": src.id, "source_type": src.source_type, "config": src.config}
 
 
 @router.delete("/{project_id}/sources/{source_id}", status_code=204)
-def unlink_source(project_id: str, source_id: int, db: Session = Depends(get_db)):
+def unlink_source(project_id: str, source_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _project_or_404(db, project_id, current_user.org_id)
     s = db.query(ProjectSource).filter(
         ProjectSource.id == source_id,
         ProjectSource.project_id == project_id,
@@ -176,19 +226,19 @@ def unlink_source(project_id: str, source_id: int, db: Session = Depends(get_db)
 # ── Notes ─────────────────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/notes")
-def list_notes(project_id: str, db: Session = Depends(get_db)):
-    _project_or_404(db, project_id)
+def list_notes(project_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _project_or_404(db, project_id, current_user.org_id)
     notes = db.query(ProjectNote).filter(ProjectNote.project_id == project_id).order_by(ProjectNote.created_at.desc()).all()
     return [{"id": n.id, "title": n.title, "content": n.content, "created_by": n.created_by,
              "created_at": n.created_at, "updated_at": n.updated_at} for n in notes]
 
 
 @router.post("/{project_id}/notes", status_code=201)
-def create_note(project_id: str, body: NoteCreate, db: Session = Depends(get_db)):
-    _project_or_404(db, project_id)
-    note = ProjectNote(project_id=project_id, title=body.title, content=body.content, created_by=body.created_by)
+def create_note(project_id: str, body: NoteCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _project_or_404(db, project_id, current_user.org_id)
+    note = ProjectNote(project_id=project_id, title=body.title, content=body.content, created_by=current_user.full_name)
     db.add(note)
-    _log(db, project_id, body.created_by or "CEO", "created_note", body.title or "Untitled note")
+    _log(db, project_id, current_user.full_name, "created_note", body.title or "Untitled note")
     db.commit()
     db.refresh(note)
     return {"id": note.id, "title": note.title, "content": note.content,
@@ -196,7 +246,7 @@ def create_note(project_id: str, body: NoteCreate, db: Session = Depends(get_db)
 
 
 @router.patch("/{project_id}/notes/{note_id}")
-def update_note(project_id: str, note_id: int, body: NoteUpdate, db: Session = Depends(get_db)):
+def update_note(project_id: str, note_id: int, body: NoteUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     n = db.query(ProjectNote).filter(ProjectNote.id == note_id, ProjectNote.project_id == project_id).first()
     if not n:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -209,11 +259,12 @@ def update_note(project_id: str, note_id: int, body: NoteUpdate, db: Session = D
 
 
 @router.delete("/{project_id}/notes/{note_id}", status_code=204)
-def delete_note(project_id: str, note_id: int, db: Session = Depends(get_db)):
+def delete_note(project_id: str, note_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _project_or_404(db, project_id, current_user.org_id)
     n = db.query(ProjectNote).filter(ProjectNote.id == note_id, ProjectNote.project_id == project_id).first()
     if not n:
         raise HTTPException(status_code=404, detail="Note not found")
-    _log(db, project_id, "CEO", "deleted_note", n.title or "Note sans titre")
+    _log(db, project_id, current_user.full_name, "deleted_note", n.title or "Note sans titre")
     db.delete(n)
     db.commit()
 
@@ -221,18 +272,17 @@ def delete_note(project_id: str, note_id: int, db: Session = Depends(get_db)):
 # ── Files ─────────────────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/files")
-def list_files(project_id: str, db: Session = Depends(get_db)):
-    _project_or_404(db, project_id)
+def list_files(project_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _project_or_404(db, project_id, current_user.org_id)
     files = db.query(ProjectFile).filter(ProjectFile.project_id == project_id).order_by(ProjectFile.uploaded_at.desc()).all()
     return [{"id": f.id, "filename": f.filename, "source": f.source, "size_bytes": f.size_bytes,
              "mime_type": f.mime_type, "uploaded_by": f.uploaded_by, "uploaded_at": f.uploaded_at} for f in files]
 
 
 @router.post("/{project_id}/files/upload", status_code=201)
-async def upload_file(project_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    _project_or_404(db, project_id)
+async def upload_file(project_id: str, file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _project_or_404(db, project_id, current_user.org_id)
 
-    # Save file to disk
     project_dir = os.path.join(UPLOAD_DIR, project_id)
     os.makedirs(project_dir, exist_ok=True)
     file_path = os.path.join(project_dir, file.filename)
@@ -249,10 +299,10 @@ async def upload_file(project_id: str, file: UploadFile = File(...), db: Session
         source="upload",
         size_bytes=size,
         mime_type=file.content_type,
-        uploaded_by="CEO",
+        uploaded_by=current_user.full_name,
     )
     db.add(record)
-    _log(db, project_id, "CEO", "uploaded_file", file.filename)
+    _log(db, project_id, current_user.full_name, "uploaded_file", file.filename)
     db.commit()
     db.refresh(record)
 
@@ -261,13 +311,14 @@ async def upload_file(project_id: str, file: UploadFile = File(...), db: Session
 
 
 @router.delete("/{project_id}/files/{file_id}", status_code=204)
-def delete_file(project_id: str, file_id: int, db: Session = Depends(get_db)):
+def delete_file(project_id: str, file_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _project_or_404(db, project_id, current_user.org_id)
     f = db.query(ProjectFile).filter(ProjectFile.id == file_id, ProjectFile.project_id == project_id).first()
     if not f:
         raise HTTPException(status_code=404, detail="File not found")
     if f.file_path and os.path.exists(f.file_path):
         os.remove(f.file_path)
-    _log(db, project_id, "CEO", "deleted_file", f.filename)
+    _log(db, project_id, current_user.full_name, "deleted_file", f.filename)
     db.delete(f)
     db.commit()
 
@@ -275,8 +326,8 @@ def delete_file(project_id: str, file_id: int, db: Session = Depends(get_db)):
 # ── Activity ──────────────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/activity")
-def get_activity(project_id: str, limit: int = 50, db: Session = Depends(get_db)):
-    _project_or_404(db, project_id)
+def get_activity(project_id: str, limit: int = 50, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _project_or_404(db, project_id, current_user.org_id)
     activities = (
         db.query(ProjectActivity)
         .filter(ProjectActivity.project_id == project_id)
@@ -335,7 +386,7 @@ class LinkClickUpList(BaseModel):
 
 
 @router.get("/{project_id}/clickup/debug-statuses")
-async def debug_statuses(project_id: str, db: Session = Depends(get_db)):
+async def debug_statuses(project_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Debug: returns raw status objects for all tasks in linked list."""
     src = db.query(ProjectSource).filter(
         ProjectSource.project_id == project_id,
@@ -416,9 +467,9 @@ async def clickup_lists(project_id: str):
 
 
 @router.post("/{project_id}/clickup/link", status_code=201)
-def link_clickup_list(project_id: str, body: LinkClickUpList, db: Session = Depends(get_db)):
+def link_clickup_list(project_id: str, body: LinkClickUpList, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Link a ClickUp list to this project."""
-    _project_or_404(db, project_id)
+    _project_or_404(db, project_id, current_user.org_id)
 
     # Remove previous ClickUp source if any
     db.query(ProjectSource).filter(
@@ -439,9 +490,9 @@ def link_clickup_list(project_id: str, body: LinkClickUpList, db: Session = Depe
 
 
 @router.get("/{project_id}/clickup/tasks")
-async def get_clickup_tasks(project_id: str, db: Session = Depends(get_db)):
+async def get_clickup_tasks(project_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Fetch tasks for the linked ClickUp list — DB first, live API fallback."""
-    _project_or_404(db, project_id)
+    _project_or_404(db, project_id, current_user.org_id)
 
     # Get linked list
     src = db.query(ProjectSource).filter(
@@ -552,12 +603,12 @@ def _serialize_live_task(t: dict, list_name: str) -> dict:
 # ── Project AI Summary ────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/clickup/summary")
-async def clickup_summary(project_id: str, db: Session = Depends(get_db)):
+async def clickup_summary(project_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Compute task stats + generate AI brief via Ollama."""
     from datetime import timezone
     import datetime as _dt
 
-    p = _project_or_404(db, project_id)
+    p = _project_or_404(db, project_id, current_user.org_id)
 
     # ── 1. Get tasks (reuse existing endpoint logic) ───────────
     tasks_response = await get_clickup_tasks(project_id, db)
@@ -669,11 +720,11 @@ Résumé en français, ton direct CEO. Commence par l'état global, signale les 
 # ── Per-project OHS ──────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/ohs")
-async def project_ohs(project_id: str, db: Session = Depends(get_db)):
+async def project_ohs(project_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Compute a composite health score scoped to this project's signals."""
     import datetime as _dt
 
-    p = _project_or_404(db, project_id)
+    p = _project_or_404(db, project_id, current_user.org_id)
 
     # ── 1. Flatten all signals from cross-signals ─────────────────
     signals_raw = await cross_signals(project_id, db)
@@ -811,7 +862,7 @@ def _keywords(text: str, min_len: int = 4) -> set[str]:
 
 
 @router.get("/{project_id}/clickup/signals")
-async def cross_signals(project_id: str, db: Session = Depends(get_db)):
+async def cross_signals(project_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     For each open ClickUp task, find related Gmail/Slack messages in the DB.
     Matching logic: email title or content shares ≥2 keywords with the task title,
@@ -1007,9 +1058,9 @@ async def list_slack_channels(project_id: str):
 
 
 @router.post("/{project_id}/slack/link", status_code=201)
-def link_slack_channel(project_id: str, body: LinkSlackChannel, db: Session = Depends(get_db)):
+def link_slack_channel(project_id: str, body: LinkSlackChannel, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Link a Slack channel to this project."""
-    _project_or_404(db, project_id)
+    _project_or_404(db, project_id, current_user.org_id)
 
     db.query(ProjectSource).filter(
         ProjectSource.project_id == project_id,
@@ -1029,11 +1080,11 @@ def link_slack_channel(project_id: str, body: LinkSlackChannel, db: Session = De
 
 
 @router.get("/{project_id}/slack/messages")
-async def slack_project_messages(project_id: str, limit: int = 30, db: Session = Depends(get_db)):
+async def slack_project_messages(project_id: str, limit: int = 30, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return recent messages from the linked Slack channel."""
     import datetime as _dt
 
-    _project_or_404(db, project_id)
+    _project_or_404(db, project_id, current_user.org_id)
     src = db.query(ProjectSource).filter(
         ProjectSource.project_id == project_id,
         ProjectSource.source_type == "slack",
@@ -1084,7 +1135,7 @@ async def slack_project_messages(project_id: str, limit: int = 30, db: Session =
 # ── Project Overview ──────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/overview")
-async def project_overview(project_id: str, db: Session = Depends(get_db)):
+async def project_overview(project_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     Aggregated CEO-level overview of a project:
     - Connected sources status
@@ -1096,7 +1147,7 @@ async def project_overview(project_id: str, db: Session = Depends(get_db)):
     import datetime as _dt
     from collections import Counter
 
-    _project_or_404(db, project_id)
+    _project_or_404(db, project_id, current_user.org_id)
 
     # ── 1. Connected sources ───────────────────────────────────
     sources = db.query(ProjectSource).filter(
@@ -1205,7 +1256,7 @@ async def project_overview(project_id: str, db: Session = Depends(get_db)):
 
     # ── Sync computed metrics back to project record ───────────
     try:
-        proj = _project_or_404(db, project_id)
+        proj = _project_or_404(db, project_id, current_user.org_id)
 
         # Progress from ClickUp
         if clickup_stats and "progress" in clickup_stats:
@@ -1264,7 +1315,7 @@ class ProjectAskRequest(BaseModel):
 
 
 @router.post("/{project_id}/ask")
-async def project_ask(project_id: str, body: ProjectAskRequest, db: Session = Depends(get_db)):
+async def project_ask(project_id: str, body: ProjectAskRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     RAG-powered Q&A with full project context:
     - ChromaDB semantic search (emails + Slack messages)
@@ -1281,7 +1332,7 @@ async def project_ask(project_id: str, body: ProjectAskRequest, db: Session = De
     if not question:
         raise HTTPException(status_code=422, detail="Question cannot be empty")
 
-    p = _project_or_404(db, project_id)
+    p = _project_or_404(db, project_id, current_user.org_id)
     members = db.query(ProjectMember).filter(ProjectMember.project_id == project_id).all()
     notes   = db.query(ProjectNote).filter(ProjectNote.project_id == project_id).order_by(ProjectNote.created_at.desc()).limit(3).all()
     sources = db.query(ProjectSource).filter(ProjectSource.project_id == project_id).all()

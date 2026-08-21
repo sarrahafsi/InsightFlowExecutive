@@ -124,6 +124,7 @@ export default function AskAnything() {
   const [indexed, setIndexed]         = useState<number | null>(null);
   const [reindexing, setReindexing]   = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
+  const [provider, setProvider]       = useState<"ollama" | "gpt">("ollama");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
 
@@ -158,7 +159,7 @@ export default function AskAnything() {
       if (projectId) {
         r = await API.post(`/api/projects/${projectId}/ask`, { question, top_k: 8 });
       } else {
-        r = await API.post("/api/ask", { query: question, top_k: 5 });
+        r = await API.post("/api/ask", { query: question, top_k: 5, provider });
       }
       setMessages(prev => [...prev, { role: "assistant", content: r.data.answer, sources: r.data.sources }]);
       if (r.data.indexed_count !== undefined) setIndexed(r.data.indexed_count);
@@ -227,11 +228,30 @@ export default function AskAnything() {
             <div>
               <div style={{ fontSize: 14, fontWeight: 800, color: "#f0ebd8", letterSpacing: "0.04em" }}>ARIA</div>
               <div style={{ fontSize: 10, color: "rgba(240,235,216,0.55)", letterSpacing: "0.05em" }}>
-                {projectId ? "Contexte projet actif" : indexed !== null ? `${indexed} messages indexés` : "Executive Intelligence"}
+                {projectId ? "Contexte projet actif" : indexed !== null ? `${indexed} msgs · ${provider === "gpt" ? "GPT" : "Ollama"}` : "Executive Intelligence"}
               </div>
             </div>
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {/* Provider toggle */}
+            <div style={{ display: "flex", background: "rgba(0,0,0,0.25)", borderRadius: 8, padding: 2, gap: 2 }}>
+              {(["ollama", "gpt"] as const).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setProvider(p)}
+                  title={p === "ollama" ? "Ollama (local)" : "GPT (OpenAI)"}
+                  style={{
+                    padding: "3px 9px", borderRadius: 6, border: "none",
+                    cursor: "pointer", fontSize: 11, fontWeight: 700,
+                    background: provider === p ? "#f0ebd8" : "transparent",
+                    color: provider === p ? "#1d2d44" : "rgba(240,235,216,0.5)",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {p === "ollama" ? "🦙 Ollama" : "✨ GPT"}
+                </button>
+              ))}
+            </div>
             {messages.length > 0 && (
               <button onClick={handleClear} title="Nouvelle conversation" style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(240,235,216,0.2)", color: "rgba(240,235,216,0.7)", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
                 Effacer

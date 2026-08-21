@@ -15,10 +15,10 @@ COLOR = "#EA4335"
 GCAL_API = "https://www.googleapis.com/calendar/v3"
 
 
-def _load_token() -> str | None:
+def _load_token(org_id: str | None = None) -> str | None:
     try:
         from application.routes.auth import get_gmail_credentials
-        creds = get_gmail_credentials()
+        creds = get_gmail_credentials(org_id=org_id)
         if creds and creds.valid:
             return creds.token
     except Exception as e:
@@ -27,7 +27,7 @@ def _load_token() -> str | None:
 
 
 def _mock_events(start: datetime, end: datetime) -> list[CalendarEvent]:
-    monday = start - timedelta(days=start.weekday())
+    monday = start.replace(hour=0, minute=0, second=0, microsecond=0)
     events = [
         CalendarEvent(
             id="gcal_mock_001",
@@ -78,8 +78,8 @@ def _mock_events(start: datetime, end: datetime) -> list[CalendarEvent]:
     return [e for e in events if e.start >= start and e.start < end]
 
 
-async def fetch_google_calendar(start: datetime, end: datetime) -> list[CalendarEvent]:
-    token = _load_token()
+async def fetch_google_calendar(start: datetime, end: datetime, org_id: str | None = None) -> list[CalendarEvent]:
+    token = _load_token(org_id=org_id)
     if not token:
         logger.info("[GoogleCalendar] No token — returning mock events")
         return _mock_events(start, end)

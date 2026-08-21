@@ -20,13 +20,19 @@ from fastapi.responses import RedirectResponse
 
 from core.config import settings
 from core.database import SessionLocal
-from core.models import SourceConfig
+from core.models import SourceConfig, User
+from core.security import get_current_user
+from fastapi import Depends
+import secrets
 
 router = APIRouter(prefix="/auth/teams", tags=["teams"])
 
 TEAMS_SCOPES = "ChannelMessage.Read.All Team.ReadBasic.All Channel.ReadBasic.All Chat.Read offline_access"
 AUTH_BASE    = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
 TOKEN_URL    = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+
+# state → org_id
+_oauth_states: dict[str, str | None] = {}
 
 
 def _tenant() -> str:
@@ -36,19 +42,19 @@ def _tenant() -> str:
 # ── OAuth flow ────────────────────────────────────────────────────────────────
 
 @router.get("/connect")
-async def teams_connect():
+async def teams_connect(current_user: User = Depends(get_current_user)):
     """Redirect browser to Microsoft consent screen."""
     if not settings.teams_client_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Teams client_id not configured. Add TEAMS_CLIENT_ID to .env",
-        )
+        raise HTTPException(status_code=400, detail="Teams client_id not configured.")
+    state = secrets.token_urlsafe(16)
+    _oauth_states[state] = current_user.org_id
     params = {
         "client_id":     settings.teams_client_id,
         "response_type": "code",
         "redirect_uri":  settings.teams_redirect_uri,
         "scope":         TEAMS_SCOPES,
         "response_mode": "query",
+        "state":         state,
         "prompt":        "select_account",
     }
     url = AUTH_BASE.format(tenant=_tenant()) + "?" + urlencode(params)
@@ -56,19 +62,19 @@ async def teams_connect():
 
 
 @router.get("/auth-url")
-async def teams_auth_url():
+async def teams_auth_url(current_user: User = Depends(get_current_user)):
     """Frontend flow — returns the OAuth URL as JSON."""
     if not settings.teams_client_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Teams client_id not configured. Add TEAMS_CLIENT_ID to .env",
-        )
+        raise HTTPException(status_code=400, detail="Teams client_id not configured.")
+    state = secrets.token_urlsafe(16)
+    _oauth_states[state] = current_user.org_id
     params = {
         "client_id":     settings.teams_client_id,
         "response_type": "code",
         "redirect_uri":  settings.teams_redirect_uri,
         "scope":         TEAMS_SCOPES,
         "response_mode": "query",
+        "state":         state,
         "prompt":        "select_account",
     }
     url = AUTH_BASE.format(tenant=_tenant()) + "?" + urlencode(params)
@@ -79,6 +85,7 @@ async def teams_auth_url():
 async def teams_callback(
     background_tasks: BackgroundTasks = None,
     code: str = Query(default=None),
+    state: str = Query(default=None),
     error: str = Query(default=None),
     error_description: str = Query(default=None),
 ):
@@ -86,7 +93,9 @@ async def teams_callback(
     if error:
         raise HTTPException(status_code=400, detail=f"OAuth error: {error} — {error_description}")
     if not code:
-        raise HTTPException(status_code=400, detail="Aucun code d'autorisation reçu. Relance le flow via /auth/teams/connect")
+        raise HTTPException(status_code=400, detail="Aucun code d'autorisation reçu.")
+
+    org_id = _oauth_states.pop(state, None) if state else None
 
     token_url = TOKEN_URL.format(tenant=_tenant())
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -98,10 +107,7 @@ async def teams_callback(
             "grant_type":    "authorization_code",
         })
         if resp.status_code != 200:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Token exchange failed: {resp.text[:300]}",
-            )
+            raise HTTPException(status_code=400, detail=f"Token exchange failed: {resp.text[:300]}")
         tokens = resp.json()
 
     token_data = {
@@ -110,37 +116,33 @@ async def teams_callback(
         "expires_in":    tokens.get("expires_in", 3600),
         "refreshed_at":  datetime.utcnow().isoformat(),
     }
-    _save_token(token_data)
-
-    # Switch connector to real mode and reset auth
+    _save_token(token_data, org_id)
     _enable_real_mode()
 
-    # Background sync
     if background_tasks:
         background_tasks.add_task(_background_teams_sync)
 
-    return RedirectResponse("http://localhost:3001/dashboard/teams", status_code=302)
+    return RedirectResponse(f"{settings.frontend_url}/onboarding?connected=teams", status_code=302)
 
 
 @router.get("/status")
-async def teams_status():
-    """Check whether Teams is authenticated."""
-    cfg = _load_token()
+async def teams_status(current_user: User = Depends(get_current_user)):
+    """Check whether Teams is authenticated for this org."""
+    cfg = _load_token(current_user.org_id)
     if not cfg or not cfg.get("access_token"):
         return {"connected": False, "next_step": "GET /auth/teams/connect"}
-    return {
-        "connected": True,
-        "refreshed_at": cfg.get("refreshed_at"),
-        "mock_mode": False,
-    }
+    return {"connected": True, "refreshed_at": cfg.get("refreshed_at"), "mock_mode": False}
 
 
 @router.delete("/disconnect", status_code=204)
-async def teams_disconnect():
+async def teams_disconnect(current_user: User = Depends(get_current_user)):
     """Remove Teams token and switch back to mock mode."""
     db = SessionLocal()
     try:
-        db.query(SourceConfig).filter(SourceConfig.source == "teams").delete()
+        db.query(SourceConfig).filter(
+            SourceConfig.source == "teams",
+            SourceConfig.org_id == current_user.org_id,
+        ).delete()
         db.commit()
     finally:
         db.close()
@@ -149,11 +151,14 @@ async def teams_disconnect():
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _load_token() -> dict | None:
+def _load_token(org_id: str | None = None) -> dict | None:
     try:
         db = SessionLocal()
         try:
-            row = db.query(SourceConfig).filter(SourceConfig.source == "teams").first()
+            q = db.query(SourceConfig).filter(SourceConfig.source == "teams")
+            if org_id is not None:
+                q = q.filter(SourceConfig.org_id == org_id)
+            row = q.first()
             if row:
                 return row.config if isinstance(row.config, dict) else json.loads(row.config)
         finally:
@@ -163,14 +168,17 @@ def _load_token() -> dict | None:
     return None
 
 
-def _save_token(token_data: dict) -> None:
+def _save_token(token_data: dict, org_id: str | None = None) -> None:
     db = SessionLocal()
     try:
-        row = db.query(SourceConfig).filter(SourceConfig.source == "teams").first()
+        q = db.query(SourceConfig).filter(SourceConfig.source == "teams")
+        if org_id is not None:
+            q = q.filter(SourceConfig.org_id == org_id)
+        row = q.first()
         if row:
             row.config = token_data
         else:
-            db.add(SourceConfig(source="teams", config=token_data))
+            db.add(SourceConfig(org_id=org_id, source="teams", config=token_data))
         db.commit()
     finally:
         db.close()
@@ -237,6 +245,22 @@ async def _background_teams_sync() -> None:
                 logger.info("[Teams] Background sync: %d items loaded", len(refreshed))
             finally:
                 db.close()
+
+        if fetched:
+            import asyncio
+            from data.etl.loader import reprocess_unenriched
+            from core.database import SessionLocal as _SL
+            db2 = _SL()
+            try:
+                n_nlp = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: reprocess_unenriched(db2, limit=len(fetched) + 20)
+                )
+                logger.info("[Teams] NLP enrichissement : %d items", n_nlp)
+            except Exception as nlp_err:
+                logger.warning("[Teams] NLP ignoré : %s", nlp_err)
+            finally:
+                db2.close()
+
     except Exception as e:
         import logging as _l
         _l.getLogger(__name__).warning("[Teams] Background sync failed: %s", e)

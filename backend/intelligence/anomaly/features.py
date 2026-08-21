@@ -27,6 +27,7 @@ def extract_daily_features(
     db,
     source: str,
     window_days: int = 14,
+    org_id: str | None = None,
 ) -> tuple[np.ndarray, List[str], List[datetime]]:
     """
     Query messages_raw for the given source over the last `window_days` days.
@@ -38,11 +39,13 @@ def extract_daily_features(
     from core.models import MessageRaw
 
     since = datetime.utcnow() - timedelta(days=window_days)
-    rows = (
-        db.query(MessageRaw)
-        .filter(MessageRaw.source == source, MessageRaw.timestamp >= since)
-        .all()
+    q = db.query(MessageRaw).filter(
+        MessageRaw.source == source,
+        MessageRaw.timestamp >= since,
     )
+    if org_id:
+        q = q.filter(MessageRaw.org_id == org_id)
+    rows = q.all()
 
     # Bucket by day
     buckets: dict[datetime, dict] = defaultdict(lambda: {

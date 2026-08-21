@@ -14,6 +14,7 @@ import ActionItems from "@/components/ActionItems";
 import DecisionLog from "@/components/DecisionLog";
 import SearchBar from "@/components/SearchBar";
 import AlertToast from "@/components/AlertToast";
+import MessageDetailModal from "@/components/MessageDetailModal";
 
 const SOURCE_CONFIG: Record<string, { label: string; icon: string; color: string }> = {
   gmail:    { label: "Gmail",    icon: "✉",  color: "#EA4335" },
@@ -32,13 +33,13 @@ const LABEL_COLORS: Record<string, string> = {
 
 const PERIOD_OPTIONS = [
   { days: 1,  label: "Aujourd'hui" },
-  { days: 7,  label: "7 jours"     },
-  { days: 30, label: "30 jours"    },
-  { days: 90, label: "90 jours"    },
+  { days: 7,  label: "7 jours" },
+  { days: 30, label: "30 jours" },
+  { days: 90, label: "90 jours" },
 ];
 
 const TABS = [
-  { id: "overview",  label: "Vue d'ensemble",  icon: "◈" },
+  { id: "overview",  label: "Vue d'ensemble",   icon: "◈" },
   { id: "alerts",    label: "Alertes & Risques", icon: "🚨" },
   { id: "decisions", label: "Décisions",         icon: "✅" },
   { id: "team",      label: "Équipe & Système",  icon: "🧠" },
@@ -46,16 +47,73 @@ const TABS = [
 
 type TabId = typeof TABS[number]["id"];
 
+/* ── Shared visual components ──────────────────────────────── */
+
+function CanvasSectionHeader({ icon, label, badge }: { icon: string; label: string; badge?: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "1rem" }}>
+      <span style={{ fontSize: 13, color: "#748cab" }}>{icon}</span>
+      <span style={{ fontSize: 11, color: "#3e5c76", textTransform: "uppercase", letterSpacing: "0.15em", fontWeight: 700 }}>
+        {label}
+      </span>
+      {badge && (
+        <span style={{ fontSize: 10, color: "#fff", background: "#3e5c76", borderRadius: 8, padding: "2px 8px", fontWeight: 600 }}>
+          {badge}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function CanvasDivider() {
+  return (
+    <div style={{
+      height: 1,
+      background: "linear-gradient(90deg, transparent, rgba(62,92,118,0.18), transparent)",
+      margin: "1.75rem 0 1.5rem",
+    }} />
+  );
+}
+
+function VisualCard({ title, sub, accent = "#748cab", children }: {
+  title: string; sub?: string; accent?: string; children: React.ReactNode;
+}) {
+  return (
+    <div style={{
+      background: "var(--bg-card)", borderRadius: 14, padding: "1.25rem",
+      boxShadow: "0 2px 10px var(--shadow-card)",
+      border: "1px solid var(--border)",
+      position: "relative", overflow: "hidden",
+      transition: "background 0.25s ease",
+    }}>
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg,${accent},${accent}44,transparent)` }} />
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: accent, textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700 }}>{title}</div>
+        {sub && <div style={{ fontSize: 10, color: "var(--text-secondary)", marginTop: 2 }}>{sub}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <p style={{ color: "var(--text-secondary)", fontSize: 13, paddingTop: 44, textAlign: "center" }}>{text}</p>;
+}
+
+/* ── Main page ─────────────────────────────────────────────── */
+
 export default function SourceDashboard() {
   const { source } = useParams<{ source: string }>();
   const config = SOURCE_CONFIG[source] ?? { label: source, icon: "◈", color: "#748cab" };
 
-  const [sinceDays, setSinceDays]   = useState(1);
-  const [activeTab, setActiveTab]   = useState<TabId>("overview");
-  const [hoveredTab, setHoveredTab] = useState<TabId | null>(null);
-  const [data, setData]             = useState<any>(null);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState<string | null>(null);
+  const [sinceDays, setSinceDays]       = useState(1);
+  const [activeTab, setActiveTab]       = useState<TabId>("overview");
+  const [hoveredTab, setHoveredTab]     = useState<TabId | null>(null);
+  const [data, setData]                 = useState<any>(null);
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState<string | null>(null);
+  const [expandedThread, setExpanded]   = useState<number | null>(null);
+  const [threadDetail, setThreadDetail] = useState<any | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -83,9 +141,9 @@ export default function SourceDashboard() {
   );
   if (!data) return null;
 
-  const intel     = data.intelligence ?? {};
-  const isGmail   = source === "gmail" && !!data.threads;
-  const isOutlook = source === "outlook";
+  const intel      = data.intelligence ?? {};
+  const isGmail    = source === "gmail" && !!data.threads;
+  const isOutlook  = source === "outlook";
   const alertCount = (intel.at_risk_items?.length ?? 0) + (data.critical_alerts ?? 0);
 
   const senderSlices = isGmail
@@ -118,15 +176,15 @@ export default function SourceDashboard() {
       <AlertToast />
 
       {/* ── Header ────────────────────────────────────────────── */}
-      <div style={{ marginBottom: "1.5rem", display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" }}>
+      <div style={{ marginBottom: "1rem", display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" }}>
         <div>
-          <div style={{ fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", color: config.color, marginBottom: 6, fontWeight: 600 }}>
-            {config.icon} {config.label} Analytics
+          <div style={{ fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", color: config.color, marginBottom: 6, fontWeight: 700 }}>
+            {config.icon} {config.label} · Analytics
           </div>
-          <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: 28, color: "#0d1321" }}>
+          <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: 26, color: "var(--text-primary)", margin: 0 }}>
             Analyse {config.label}
           </h1>
-          <p style={{ color: "#748cab", fontSize: 13, marginTop: 4 }}>
+          <p style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 4 }}>
             {data.volume.total} messages · Mis à jour {new Date(data.computed_at).toLocaleString("fr-FR")}
           </p>
         </div>
@@ -137,8 +195,7 @@ export default function SourceDashboard() {
               border: `1px solid ${sinceDays === days ? config.color : "rgba(62,92,118,0.2)"}`,
               background: sinceDays === days ? config.color : "transparent",
               color: sinceDays === days ? "#fff" : "#748cab",
-              fontSize: 12, fontWeight: sinceDays === days ? 600 : 400,
-              whiteSpace: "nowrap",
+              fontSize: 12, fontWeight: sinceDays === days ? 600 : 400, whiteSpace: "nowrap",
             }}>{label}</button>
           ))}
           <button onClick={() => window.print()} style={{
@@ -154,15 +211,13 @@ export default function SourceDashboard() {
         <SearchBar />
       </div>
 
-      {/* ── Tabs nav ──────────────────────────────────────────── */}
-      <div style={{ display: "flex", gap: 2, borderBottom: "2px solid rgba(62,92,118,0.12)", marginBottom: "2rem", overflowX: "auto" }}>
+      {/* ── Tabs ──────────────────────────────────────────────── */}
+      <div style={{ display: "flex", gap: 2, borderBottom: "2px solid rgba(62,92,118,0.12)", marginBottom: "1.75rem", overflowX: "auto" }}>
         {TABS.map(tab => {
           const isActive  = activeTab === tab.id;
           const showBadge = tab.id === "alerts" && alertCount > 0;
           return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               onMouseEnter={() => setHoveredTab(tab.id)}
               onMouseLeave={() => setHoveredTab(null)}
               style={{
@@ -188,134 +243,213 @@ export default function SourceDashboard() {
       </div>
 
       {/* ══════════════════════════════════════════════════════════
-          TAB 1 — Vue d'ensemble
+          TAB 1 — Vue d'ensemble (BI Canvas)
       ══════════════════════════════════════════════════════════ */}
       {activeTab === "overview" && (
         <div>
-          {/* KPI Row */}
-          <div style={{ fontSize: 11, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 600, marginBottom: 10 }}>
-            Volume &amp; Engagement
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "1rem", marginBottom: "1.75rem" }}>
-            <KPICard title={`${config.label} (sem.)`} value={data.volume.this_week} icon="📥"
-              delta={data.volume.delta_pct} accent={config.color}
-              subtitle={`Sem. passée : ${data.volume.last_week}`} />
-            <KPICard title="Total analysés" value={data.volume.total} icon="📦"
-              accent={config.color} subtitle={`${sinceDays} derniers jours`} />
-            <KPICard title="Signaux de risque" value={intel.risk_count ?? 0} icon="⚠️"
-              risk={(intel.risk_count ?? 0) > 5 ? "high" : (intel.risk_count ?? 0) > 2 ? "medium" : "low"}
-              subtitle={`${intel.risk_rate ?? 0}% des messages`} />
-            {isGmail && (
-              <>
+
+          {/* BI Canvas */}
+          <div style={{
+            background: "var(--bg-canvas)",
+            borderRadius: 20, padding: "1.75rem",
+            border: "1px solid rgba(62,92,118,0.1)",
+            marginBottom: "1.5rem",
+          }}>
+
+            {/* Canvas title bar */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.75rem", flexWrap: "wrap", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 4, height: 28, background: `linear-gradient(180deg,${config.color},${config.color}88)`, borderRadius: 4 }} />
+                <div>
+                  <div style={{ fontSize: 10, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.2em", fontWeight: 700 }}>
+                    Tableau de bord analytique · {config.label}
+                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-primary)", fontFamily: "DM Serif Display, serif" }}>
+                    KPIs · Signaux · Graphiques
+                  </div>
+                </div>
+              </div>
+              <span style={{ fontSize: 10, color: "var(--text-secondary)", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: "4px 10px" }}>
+                Période : {sinceDays === 1 ? "Aujourd'hui" : `${sinceDays} derniers jours`}
+              </span>
+            </div>
+
+            {/* ─ Section 1 : KPIs ─────────────────────────────── */}
+            <CanvasSectionHeader icon="◈" label="Indicateurs Clés de Performance" />
+
+            {/* KPIs communs à toutes les sources */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "0.875rem", marginBottom: "1.75rem" }}>
+
+              {/* Volume & Activité */}
+              <KPICard title={`${config.label} (sem.)`} value={data.volume.this_week} icon="📥"
+                delta={data.volume.delta_pct} accent={config.color}
+                subtitle={`Sem. passée : ${data.volume.last_week}`} />
+
+              <KPICard title="Total analysés" value={data.volume.total} icon="📦"
+                accent={config.color} subtitle={`Sur ${sinceDays} jour(s)`} />
+
+              <KPICard title="Signaux de risque" value={intel.risk_count ?? 0} icon="⚠️"
+                risk={(intel.risk_count ?? 0) > 5 ? "high" : (intel.risk_count ?? 0) > 2 ? "medium" : "low"}
+                subtitle={`${intel.risk_rate ?? 0}% des messages`} />
+
+              <KPICard title="Taux de risque" value={`${intel.risk_rate ?? 0}%`} icon="📊"
+                accent={(intel.risk_rate ?? 0) > 30 ? "#ef4444" : (intel.risk_rate ?? 0) > 15 ? "#f59e0b" : "#22c55e"}
+                subtitle="Des messages analysés" />
+
+              <KPICard title="Sentiment positif" value={`${data.sentiment.positive}%`} icon="◉"
+                accent="#22c55e" subtitle={`${data.sentiment.neutral}% neutre`} />
+
+              <KPICard title="Sentiment négatif" value={`${data.sentiment.negative}%`} icon="📉"
+                risk={data.sentiment.negative > 30 ? "high" : data.sentiment.negative > 15 ? "medium" : "low"}
+                subtitle="Communications négatives" />
+
+              <KPICard title="Couverture NLP" value={`${intel.nlp_coverage ?? 0}%`} icon="🧠"
+                accent={(intel.nlp_coverage ?? 0) > 80 ? "#22c55e" : "#f59e0b"}
+                subtitle={(intel.nlp_coverage ?? 0) > 80 ? "Analyse complète" : "Sync en cours"} />
+
+              {/* Gmail KPIs */}
+              {isGmail && <>
                 <KPICard title="Non lus" value={data.unread.count} icon="🔴"
                   risk={data.unread.rate > 40 ? "high" : data.unread.rate > 20 ? "medium" : "low"}
                   subtitle={`${data.unread.rate}% du total`} />
+
                 <KPICard title="Importants" value={data.important.count} icon="⭐"
                   accent="#f59e0b" subtitle={`${data.important.rate}% du total`} />
+
                 <KPICard title="Tps réponse moy." icon="⚡"
                   value={data.avg_response_hours ? `${data.avg_response_hours}h` : "N/A"}
                   accent="#3e5c76"
                   subtitle={data.avg_response_hours ? "Basé sur les threads" : "Dossier envoyé requis"} />
-              </>
-            )}
-            {isOutlook && (
-              <>
+
+                <KPICard title="Escalades" value={data.escalation.count} icon="🚨"
+                  risk={data.escalation.count > 5 ? "high" : data.escalation.count > 2 ? "medium" : "low"}
+                  subtitle="urgent · ASAP · critique" />
+
+                <KPICard title="Sans réponse +48h" value={data.no_reply_48h.count} icon="⏰"
+                  risk={data.no_reply_48h.count > 5 ? "high" : data.no_reply_48h.count > 2 ? "medium" : "low"}
+                  subtitle="Importants non traités" />
+
+                <KPICard title="Critiques sans réponse" value={data.unanswered_critical.count} icon="❗"
+                  risk={data.unanswered_critical.count > 0 ? "high" : "low"}
+                  subtitle="Escalade + pas de réponse" />
+
+                <KPICard title="Threads longs" value={data.threads.long_count} icon="🔁"
+                  risk={data.threads.long_count > 5 ? "medium" : "low"}
+                  subtitle={`Moy. ${data.threads.avg_length} msg/thread`} />
+
+                <KPICard title="Back-and-forth" value={`${data.threads.back_and_forth_score}/10`} icon="↔"
+                  risk={data.threads.back_and_forth_score > 6 ? "high" : data.threads.back_and_forth_score > 3 ? "medium" : "low"}
+                  subtitle="Intensité des échanges" />
+
+                <KPICard title="Expéditeurs uniques" value={data.unique_senders} icon="👤"
+                  accent="#3e5c76" subtitle="Sources distinctes" />
+              </>}
+
+              {/* Outlook KPIs */}
+              {isOutlook && <>
                 <KPICard title="Non lus" value={data.unread?.count ?? 0} icon="🔴"
                   risk={(data.unread?.rate ?? 0) > 40 ? "high" : (data.unread?.rate ?? 0) > 20 ? "medium" : "low"}
                   subtitle={`${data.unread?.rate ?? 0}% du total`} />
+
                 <KPICard title="Haute importance" value={data.high_importance?.count ?? 0} icon="⭐"
                   accent="#f59e0b" subtitle={`${data.high_importance?.rate ?? 0}% du total`} />
-                <KPICard title="Avec pièces jointes" value={data.attachments?.count ?? 0} icon="📎"
+
+                <KPICard title="Pièces jointes" value={data.attachments?.count ?? 0} icon="📎"
                   accent="#3e5c76" subtitle={`${data.attachments?.rate ?? 0}% du total`} />
+
+                <KPICard title="Escalades" value={data.escalation?.count ?? 0} icon="🚨"
+                  risk={(data.escalation?.count ?? 0) > 5 ? "high" : (data.escalation?.count ?? 0) > 2 ? "medium" : "low"}
+                  subtitle="Urgence · ASAP · Critique" />
+
+                <KPICard title="Expéditeurs uniques" value={data.unique_senders ?? 0} icon="👤"
+                  accent="#3e5c76" subtitle="Sources distinctes" />
+              </>}
+
+              {/* Autres sources (Jira, Slack, etc.) */}
+              {!isGmail && !isOutlook && (
+                <KPICard title="Alertes escalade" value={data.critical_alerts} icon="🚨"
+                  risk={data.critical_alerts > 5 ? "high" : data.critical_alerts > 2 ? "medium" : "low"}
+                  subtitle="Mots clés d'urgence" />
+              )}
+            </div>
+
+            {/* ─ Section 2 : Signaux — directement sous les KPIs ── */}
+            {intel.business_labels && (
+              <>
+                <CanvasDivider />
+                <CanvasSectionHeader icon="⚡" label="Tableau de bord des signaux" badge="Lié aux KPIs" />
+                <div style={{ background: "var(--bg-card)", borderRadius: 16, overflow: "hidden" }}>
+                  <SignalPanel data={intel} sinceDays={sinceDays} />
+                </div>
               </>
             )}
-            {!isGmail && !isOutlook && (
-              <KPICard title="Alertes escalade" value={data.critical_alerts} icon="🚨"
-                risk={data.critical_alerts > 5 ? "high" : data.critical_alerts > 2 ? "medium" : "low"}
-                subtitle="Mots clés d'urgence" />
+
+            {/* ─ Section 3 : Graphiques ───────────────────────── */}
+            <CanvasDivider />
+            <CanvasSectionHeader icon="◉" label="Analyse temporelle & Distribution" />
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+              <VisualCard title="Activité (par jour)" sub={`${sinceDays} jours`} accent={config.color}>
+                <BarChart data={byDayData} height={140} color={config.color} />
+              </VisualCard>
+              <VisualCard title="Polarité des communications" sub="Sentiment global" accent="#22c55e">
+                <DonutChart data={sentimentSlices} size={150} label="items" />
+              </VisualCard>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: isGmail && labelSlices?.length > 0 ? "1fr 1fr" : "1fr", gap: "1rem", marginBottom: "1rem" }}>
+              <VisualCard title={isGmail ? "Top expéditeurs" : "Top auteurs"} accent={config.color}>
+                {senderSlices?.length > 0
+                  ? <DonutChart data={senderSlices} size={150} label="msgs" />
+                  : <EmptyState text="Pas de données expéditeurs" />}
+              </VisualCard>
+              {isGmail && labelSlices?.length > 0 && (
+                <VisualCard title="Distribution des labels Gmail" accent="#f59e0b">
+                  <DonutChart data={labelSlices} size={150} label="labels" />
+                </VisualCard>
+              )}
+            </div>
+
+            {/* Tendance risques */}
+            {intel.risk_trend?.length > 0 && (
+              <VisualCard title="Tendance des risques" sub="Blocked · Urgent · Risk" accent="#ef4444">
+                <LineChart data={intel.risk_trend} height={130} color="#ef4444" />
+              </VisualCard>
             )}
-            {isOutlook && (
-              <KPICard title="Escalades" value={data.escalation?.count ?? 0} icon="🚨"
-                risk={(data.escalation?.count ?? 0) > 5 ? "high" : (data.escalation?.count ?? 0) > 2 ? "medium" : "low"}
-                subtitle="Urgence · ASAP · Critique" />
+
+            {/* Heure d'activité (Gmail) */}
+            {isGmail && data.by_hour && (
+              <div style={{ marginTop: "1rem" }}>
+                <VisualCard title="Pic d'activité par heure (6h–22h)" sub="Répartition horaire" accent="#3e5c76">
+                  <BarChart
+                    data={data.by_hour.slice(6, 22).map((d: any) => ({ label: `${d.hour}h`, value: d.count }))}
+                    height={120} color="#3e5c76"
+                  />
+                </VisualCard>
+              </div>
             )}
-          </div>
 
-          {/* Signal Panel — tableau de bord des signaux IA */}
-          {intel.business_labels && (
-            <div style={{ marginBottom: "1.5rem" }}>
-              <SignalPanel data={intel} />
-            </div>
-          )}
-
-          {/* Charts Row — Activity + Sentiment */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
-            <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(62,92,118,0.1)" }}>
-              <div style={{ fontSize: 12, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500, marginBottom: 16 }}>
-                Activité (7 jours)
-              </div>
-              <BarChart data={byDayData} height={140} color={config.color} />
-            </div>
-            <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(62,92,118,0.1)" }}>
-              <div style={{ fontSize: 12, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500, marginBottom: 16 }}>
-                Polarité des communications
-              </div>
-              <DonutChart data={sentimentSlices} size={150} label="items" />
-            </div>
-          </div>
-
-          {/* Top senders + Labels */}
-          <div style={{ display: "grid", gridTemplateColumns: isGmail ? "1fr 1fr" : "1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
-            <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(62,92,118,0.1)" }}>
-              <div style={{ fontSize: 12, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500, marginBottom: 16 }}>
-                {isGmail ? "Top expéditeurs" : "Top auteurs"}
-              </div>
-              {senderSlices?.length > 0
-                ? <DonutChart data={senderSlices} size={150} label="items" />
-                : <p style={{ color: "#748cab", fontSize: 13 }}>Pas de données</p>}
-            </div>
-            {isGmail && labelSlices?.length > 0 && (
-              <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(62,92,118,0.1)" }}>
-                <div style={{ fontSize: 12, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500, marginBottom: 16 }}>
-                  Distribution des labels Gmail
+            {/* Mots-clés */}
+            {data.keyword_frequency?.length > 0 && (
+              <div style={{ marginTop: "1rem", background: "var(--bg-card)", borderRadius: 14, padding: "1.25rem", border: "1px solid var(--border)", boxShadow: "0 2px 10px var(--shadow-card)" }}>
+                <div style={{ fontSize: 11, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 12 }}>
+                  Mots-clés fréquents
                 </div>
-                <DonutChart data={labelSlices} size={150} label="labels" />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {data.keyword_frequency.map((k: any, i: number) => (
+                    <span key={i} style={{
+                      padding: "4px 12px", borderRadius: 100,
+                      background: `rgba(62,92,118,${0.07 + (1 - i / data.keyword_frequency.length) * 0.12})`,
+                      color: "#3e5c76", fontSize: 12, fontWeight: 500,
+                    }}>
+                      {k.word} <span style={{ color: "#748cab", fontSize: 11 }}>{k.count}</span>
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
-          </div>
 
-          {/* Gmail: Hour distribution */}
-          {isGmail && data.by_hour && (
-            <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(62,92,118,0.1)", marginBottom: "1.5rem" }}>
-              <div style={{ fontSize: 12, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500, marginBottom: 16 }}>
-                Pic d&apos;activité par heure (6h – 22h)
-              </div>
-              <BarChart
-                data={data.by_hour.slice(6, 22).map((d: any) => ({ label: `${d.hour}h`, value: d.count }))}
-                height={120} color="#3e5c76"
-              />
-            </div>
-          )}
-
-          {/* Keywords */}
-          {data.keyword_frequency?.length > 0 && (
-            <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(62,92,118,0.1)", marginBottom: "1.5rem" }}>
-              <div style={{ fontSize: 12, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500, marginBottom: 16 }}>
-                Mots-clés fréquents
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {data.keyword_frequency.map((k: any, i: number) => (
-                  <span key={i} style={{
-                    padding: "4px 12px", borderRadius: 100,
-                    background: `rgba(62,92,118,${0.07 + (1 - i / data.keyword_frequency.length) * 0.12})`,
-                    color: "#3e5c76", fontSize: 12, fontWeight: 500,
-                  }}>
-                    {k.word} <span style={{ color: "#748cab", fontSize: 11 }}>{k.count}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          </div>{/* end BI Canvas */}
         </div>
       )}
 
@@ -373,16 +507,13 @@ export default function SourceDashboard() {
             </>
           )}
 
-          {/* Signal Panel */}
-          {intel.business_labels && <SignalPanel data={intel} />}
+          {intel.business_labels && <SignalPanel data={intel} sinceDays={sinceDays} />}
 
-          {/* Risk Feed */}
           {intel.at_risk_items?.length > 0 && (
             <RiskFeed items={intel.at_risk_items} title={`Signaux de Risque — ${config.label}`} />
           )}
 
-          {/* Risk Trend */}
-          <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(239,68,68,0.12)", marginBottom: "1.5rem" }}>
+          <div style={{ background: "var(--bg-card)", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px var(--shadow-card)", border: "1px solid rgba(239,68,68,0.2)", marginBottom: "1.5rem" }}>
             <div style={{ fontSize: 12, color: "#ef4444", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500, marginBottom: 4 }}>Tendance des risques</div>
             <div style={{ fontSize: 11, color: "#748cab", marginBottom: 12 }}>Blocked · Urgent · Risk</div>
             {intel.risk_trend?.length > 0
@@ -391,9 +522,8 @@ export default function SourceDashboard() {
             }
           </div>
 
-          {/* Gmail: Escalation items */}
           {isGmail && data.escalation.items.length > 0 && (
-            <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(239,68,68,0.2)", marginBottom: "1.5rem" }}>
+            <div style={{ background: "var(--bg-card)", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px var(--shadow-card)", border: "1px solid rgba(239,68,68,0.2)", marginBottom: "1.5rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
                 <span>🚨</span>
                 <div style={{ fontSize: 12, color: "#ef4444", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>
@@ -402,16 +532,15 @@ export default function SourceDashboard() {
               </div>
               {data.escalation.items.map((item: any, i: number) => (
                 <div key={i} style={{ padding: "10px 14px", background: "#fef2f2", borderRadius: 10, marginBottom: 8, borderLeft: "3px solid #ef4444" }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0d1321", marginBottom: 2 }}>{item.title}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 2 }}>{item.title}</div>
                   <div style={{ fontSize: 11, color: "#748cab" }}>{item.author} · {new Date(item.timestamp).toLocaleString("fr-FR")}</div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Gmail: Long threads */}
           {isGmail && data.threads.long_threads.length > 0 && (
-            <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(245,158,11,0.2)", marginBottom: "1.5rem" }}>
+            <div style={{ background: "var(--bg-card)", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px var(--shadow-card)", border: "1px solid rgba(245,158,11,0.2)", marginBottom: "1.5rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
                 <span>🔁</span>
                 <div style={{ fontSize: 12, color: "#f59e0b", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>
@@ -419,17 +548,57 @@ export default function SourceDashboard() {
                 </div>
               </div>
               {data.threads.long_threads.map((t: any, i: number) => (
-                <div key={i} style={{ padding: "10px 14px", background: "#fffbeb", borderRadius: 10, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center", borderLeft: "3px solid #f59e0b" }}>
-                  <div style={{ fontSize: 13, color: "#0d1321" }}>{(t.subject || "").slice(0, 60)}...</div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b", flexShrink: 0, marginLeft: 12 }}>{t.message_count} messages</span>
+                <div key={i} style={{ marginBottom: 8 }}>
+                  {/* Thread header — click to expand */}
+                  <div
+                    onClick={() => setExpanded(expandedThread === i ? null : i)}
+                    style={{ padding: "10px 14px", background: "#fffbeb", borderRadius: expandedThread === i ? "10px 10px 0 0" : 10, display: "flex", justifyContent: "space-between", alignItems: "center", borderLeft: "3px solid #f59e0b", cursor: "pointer" }}
+                  >
+                    <div style={{ fontSize: 13, color: "var(--text-primary)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {(t.subject || "").slice(0, 60)}{t.subject?.length > 60 ? "…" : ""}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginLeft: 12 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b" }}>{t.message_count} messages</span>
+                      <span style={{ fontSize: 11, color: "#f59e0b" }}>{expandedThread === i ? "▲" : "▼"}</span>
+                    </div>
+                  </div>
+
+                  {/* Thread emails list */}
+                  {expandedThread === i && (
+                    <div style={{ border: "1px solid rgba(245,158,11,0.2)", borderTop: "none", borderRadius: "0 0 10px 10px", overflow: "hidden" }}>
+                      {(t.items || []).map((msg: any, j: number) => (
+                        <div
+                          key={j}
+                          onClick={() => setThreadDetail(msg)}
+                          style={{ padding: "9px 14px", borderTop: j > 0 ? "1px solid rgba(245,158,11,0.1)" : "none", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", background: "#fff", transition: "background 0.1s" }}
+                          onMouseEnter={e => (e.currentTarget.style.background = "#fffbeb")}
+                          onMouseLeave={e => (e.currentTarget.style.background = "#fff")}
+                        >
+                          <span style={{ fontSize: 11, color: "#94a3b8", width: 16, textAlign: "center", flexShrink: 0 }}>{j + 1}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{msg.title}</div>
+                            <div style={{ fontSize: 11, color: "#748cab", marginTop: 1 }}>{msg.author} · {new Date(msg.timestamp).toLocaleString("fr-FR")}</div>
+                          </div>
+                          {msg.sentiment_label && (
+                            <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 20, background: msg.sentiment_label === "NEGATIVE" ? "#fef2f2" : msg.sentiment_label === "POSITIVE" ? "#f0fdf4" : "#f1f5f9", color: msg.sentiment_label === "NEGATIVE" ? "#ef4444" : msg.sentiment_label === "POSITIVE" ? "#16a34a" : "#64748b", flexShrink: 0 }}>
+                              {msg.sentiment_label}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           )}
 
-          {/* Outlook: Escalation items */}
+          {threadDetail && (
+            <MessageDetailModal item={threadDetail} onClose={() => setThreadDetail(null)} />
+          )}
+
           {isOutlook && (data.escalation?.items?.length ?? 0) > 0 && (
-            <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(239,68,68,0.2)", marginBottom: "1.5rem" }}>
+            <div style={{ background: "var(--bg-card)", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px var(--shadow-card)", border: "1px solid rgba(239,68,68,0.2)", marginBottom: "1.5rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
                 <span>🚨</span>
                 <div style={{ fontSize: 12, color: "#ef4444", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>
@@ -438,14 +607,13 @@ export default function SourceDashboard() {
               </div>
               {data.escalation.items.map((item: any, i: number) => (
                 <div key={i} style={{ padding: "10px 14px", background: "#fef2f2", borderRadius: 10, marginBottom: 8, borderLeft: "3px solid #ef4444" }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0d1321", marginBottom: 2 }}>{item.title}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 2 }}>{item.title}</div>
                   <div style={{ fontSize: 11, color: "#748cab" }}>{item.author} · {new Date(item.timestamp).toLocaleString("fr-FR")}</div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Empty state */}
           {!intel.business_labels && !intel.at_risk_items?.length && !isGmail && !isOutlook && (
             <div style={{ textAlign: "center", padding: "3rem", color: "#748cab" }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
@@ -480,9 +648,7 @@ export default function SourceDashboard() {
               <BurnoutCard data={intel.burnout} />
             </div>
           )}
-
-          {/* Sentiment trend */}
-          <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(62,92,118,0.1)", marginBottom: "1.5rem" }}>
+          <div style={{ background: "var(--bg-card)", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px var(--shadow-card)", border: "1px solid var(--border)", marginBottom: "1.5rem" }}>
             <div style={{ fontSize: 12, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500, marginBottom: 16 }}>
               Répartition du sentiment
             </div>
@@ -492,17 +658,15 @@ export default function SourceDashboard() {
                 {sentimentSlices.map(s => (
                   <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ width: 10, height: 10, borderRadius: "50%", background: s.color }} />
-                    <span style={{ fontSize: 13, color: "#0d1321", fontWeight: 500 }}>{s.label}</span>
+                    <span style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 500 }}>{s.label}</span>
                     <span style={{ fontSize: 13, color: "#748cab" }}>{s.value}%</span>
                   </div>
                 ))}
               </div>
             </div>
           </div>
-
-          {/* Keywords */}
           {data.keyword_frequency?.length > 0 && (
-            <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(62,92,118,0.1)", marginBottom: "1.5rem" }}>
+            <div style={{ background: "var(--bg-card)", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px var(--shadow-card)", border: "1px solid var(--border)", marginBottom: "1.5rem" }}>
               <div style={{ fontSize: 12, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500, marginBottom: 16 }}>
                 Mots-clés fréquents
               </div>
@@ -519,8 +683,6 @@ export default function SourceDashboard() {
               </div>
             </div>
           )}
-
-          {/* Empty state if no burnout */}
           {!intel.burnout && !data.keyword_frequency?.length && (
             <div style={{ textAlign: "center", padding: "3rem", color: "#748cab" }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>🧠</div>
@@ -529,6 +691,8 @@ export default function SourceDashboard() {
           )}
         </div>
       )}
+
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 }

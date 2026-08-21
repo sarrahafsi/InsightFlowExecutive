@@ -314,6 +314,82 @@ async def trigger_auto_retrain(background_tasks: BackgroundTasks):
         raise HTTPException(status_code=503, detail=f"Scheduler introuvable : {e}")
 
 
+@router.get("/agent/log")
+async def agent_log(n: int = 20):
+    """
+    Retourne l'historique des décisions de l'agent autonome.
+    Chaque entrée contient : perception, raisonnement LLM, stratégie choisie, exécution.
+    """
+    import sys
+    ml_dir = SCRIPT_PATH.parent
+    if str(ml_dir) not in sys.path:
+        sys.path.insert(0, str(ml_dir))
+
+    try:
+        from autonomous_agent import AutonomousLearningAgent
+        agent = AutonomousLearningAgent()
+        logs  = agent.get_recent_logs(n=n)
+        return {"logs": logs, "total": len(logs)}
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"Agent introuvable : {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur agent : {e}")
+
+
+@router.get("/agent/status")
+async def agent_status():
+    """Retourne la dernière décision de l'agent autonome (log le plus récent)."""
+    import sys
+    ml_dir = SCRIPT_PATH.parent
+    if str(ml_dir) not in sys.path:
+        sys.path.insert(0, str(ml_dir))
+
+    try:
+        from autonomous_agent import AutonomousLearningAgent
+        agent = AutonomousLearningAgent()
+        logs  = agent.get_recent_logs(n=1)
+        if not logs:
+            return {"status": "no_runs_yet", "last_decision": None}
+        last = logs[0]
+        return {
+            "status":           last.get("execution", {}).get("status", "unknown"),
+            "last_decision":    last.get("decision"),
+            "last_perception":  last.get("perception"),
+            "executed":         last.get("execution", {}).get("executed", False),
+            "timestamp":        last.get("timestamp"),
+            "duration_seconds": last.get("duration_seconds"),
+        }
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"Agent introuvable : {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur agent : {e}")
+
+
+@router.post("/agent/trigger")
+async def trigger_agent(background_tasks: BackgroundTasks,
+                        dry_run: bool = False):
+    """
+    Déclenche l'agent autonome immédiatement (sans attendre le scheduler nightly).
+    dry_run=true : analyse et raisonnement sans exécuter le fine-tuning.
+    """
+    import sys
+    ml_dir = SCRIPT_PATH.parent
+    if str(ml_dir) not in sys.path:
+        sys.path.insert(0, str(ml_dir))
+
+    def _run():
+        from autonomous_agent import AutonomousLearningAgent
+        agent = AutonomousLearningAgent()
+        agent.run(min_samples=1, epochs=3, dry_run=dry_run)
+
+    background_tasks.add_task(_run)
+    return {
+        "status":  "triggered",
+        "dry_run": dry_run,
+        "message": "Agent autonome lancé en arrière-plan. Consultez GET /api/ml/agent/status dans quelques secondes.",
+    }
+
+
 @router.post("/reload-models")
 async def reload_models():
     """

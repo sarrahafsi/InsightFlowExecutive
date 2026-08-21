@@ -7,9 +7,10 @@ interface KPICardProps {
   subtitle?: string;
   delta?: number;
   deltaLabel?: string;
-  icon?: string;
+  icon?: React.ReactNode;
   accent?: string;
   risk?: "low" | "medium" | "high";
+  onClick?: () => void;
   children?: React.ReactNode;
 }
 
@@ -30,82 +31,140 @@ function useCountUp(target: number, duration = 700) {
   return count;
 }
 
+const RISK_COLORS = { high: "#ef4444", medium: "#f59e0b", low: "#22c55e" };
+const RISK_BG     = { high: "#fef2f2", medium: "#fffbeb", low: "#f0fdf4" };
+const RISK_LABELS = { high: "Critique", medium: "Modéré", low: "Normal" };
+
 export default function KPICard({
-  title, value, subtitle, delta, deltaLabel, icon, accent = "#3e5c76", risk, children
+  title, value, subtitle, delta, icon, accent = "#3e5c76", risk, onClick, children,
 }: KPICardProps) {
-  const riskColor = risk === "high" ? "#ef4444" : risk === "medium" ? "#f59e0b" : "#22c55e";
-  const barColor = risk ? riskColor : accent;
+  const barColor   = risk ? RISK_COLORS[risk] : accent;
   const deltaColor = delta === undefined ? "#748cab" : delta > 0 ? "#22c55e" : delta < 0 ? "#ef4444" : "#748cab";
   const deltaArrow = delta === undefined ? "" : delta > 0 ? "↑" : delta < 0 ? "↓" : "→";
   const [hovered, setHovered] = useState(false);
 
   const numericValue = typeof value === "number" ? value : parseFloat(String(value));
   const isAnimatable = !isNaN(numericValue) && typeof value === "number";
-  const animated = useCountUp(isAnimatable ? numericValue : 0);
+  const animated     = useCountUp(isAnimatable ? numericValue : 0);
   const displayValue = isAnimatable ? animated : value;
 
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onClick={onClick}
+      title={onClick ? "Voir le détail" : undefined}
       style={{
-        background: "#ffffff",
-        borderRadius: 16,
-        padding: "1.25rem 1.5rem",
-        boxShadow: hovered
-          ? "0 8px 28px rgba(13,19,33,0.12)"
-          : "0 2px 12px rgba(13,19,33,0.06)",
-        border: `1px solid ${hovered ? barColor + "44" : "rgba(62,92,118,0.1)"}`,
+        background: "var(--bg-card)",
+        borderRadius: 14,
+        padding: "1.25rem 1.15rem",
+        boxShadow: hovered ? `0 8px 28px ${barColor}22` : "0 2px 10px var(--shadow-card)",
+        border: `1.5px solid ${hovered ? barColor + "44" : "var(--border)"}`,
         display: "flex",
         flexDirection: "column",
-        gap: 8,
+        alignItems: "center",
+        textAlign: "center",
+        gap: 6,
         position: "relative",
         overflow: "hidden",
         transition: "box-shadow 0.2s, border-color 0.2s, transform 0.15s",
         transform: hovered ? "translateY(-2px)" : "none",
-        cursor: "default",
+        cursor: onClick ? "pointer" : "default",
+        minHeight: 150,
+        justifyContent: "center",
       }}
     >
-      {/* Accent bar */}
+      {/* Accent bar — top */}
       <div style={{
         position: "absolute", top: 0, left: 0,
         width: hovered ? "100%" : "40%",
         height: 3,
-        background: barColor,
-        borderRadius: "16px 16px 0 0",
+        background: `linear-gradient(90deg, ${barColor}, ${barColor}33)`,
+        borderRadius: "14px 14px 0 0",
         transition: "width 0.35s ease",
       }} />
 
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 12, color: "#748cab", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-          {title}
-        </span>
-        {icon && (
-          <span style={{
-            fontSize: 18,
-            transform: hovered ? "scale(1.15)" : "scale(1)",
-            transition: "transform 0.2s",
-            display: "inline-block",
-          }}>{icon}</span>
-        )}
-      </div>
+      {/* Icon */}
+      {icon && (
+        <div style={{
+          width: 42, height: 42, borderRadius: 11, flexShrink: 0,
+          background: `${barColor}14`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          color: barColor,
+          transform: hovered ? "scale(1.08)" : "scale(1)",
+          transition: "transform 0.2s",
+          marginBottom: 2,
+        }}>
+          {icon}
+        </div>
+      )}
 
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+      {/* Value */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 6, justifyContent: "center" }}>
         <span style={{
-          fontSize: 28, fontWeight: 700, color: "#0d1321", lineHeight: 1,
-          transition: "color 0.2s",
+          fontSize: 28,
+          fontWeight: 700,
+          color: "var(--text-primary)",
+          lineHeight: 1,
+          letterSpacing: "-0.02em",
+          fontVariantNumeric: "tabular-nums",
         }}>
           {displayValue}
         </span>
         {delta !== undefined && (
-          <span style={{ fontSize: 13, fontWeight: 600, color: deltaColor }}>
-            {deltaArrow} {Math.abs(delta)}% {deltaLabel ?? "vs sem. passée"}
+          <span style={{ fontSize: 12, fontWeight: 700, color: deltaColor }}>
+            {deltaArrow} {Math.abs(delta)}%
           </span>
         )}
       </div>
 
+      {/* Title */}
+      <span style={{
+        fontSize: 12,
+        fontWeight: 600,
+        color: "var(--text-primary)",
+        letterSpacing: "0.01em",
+        lineHeight: 1.3,
+      }}>
+        {title}
+      </span>
+
+      {/* Subtitle */}
       {subtitle && (
-        <span style={{ fontSize: 12, color: "#748cab" }}>{subtitle}</span>
+        <span style={{
+          fontSize: 11,
+          color: "var(--text-secondary)",
+          lineHeight: 1.4,
+        }}>
+          {subtitle}
+        </span>
+      )}
+
+      {/* Risk badge */}
+      {risk && (
+        <span style={{
+          fontSize: 10, fontWeight: 700,
+          color: RISK_COLORS[risk],
+          background: RISK_BG[risk],
+          border: `1px solid ${RISK_COLORS[risk]}2a`,
+          borderRadius: 20,
+          padding: "2px 9px",
+          letterSpacing: "0.03em",
+        }}>
+          {RISK_LABELS[risk]}
+        </span>
+      )}
+
+      {/* Hover hint */}
+      {onClick && (
+        <span style={{
+          position: "absolute", bottom: 8, right: 10,
+          fontSize: 10, color: barColor, fontWeight: 600,
+          opacity: hovered ? 1 : 0,
+          transition: "opacity 0.2s",
+        }}>
+          Voir le détail →
+        </span>
       )}
 
       {children}

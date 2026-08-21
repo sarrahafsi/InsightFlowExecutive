@@ -227,12 +227,12 @@ class OutlookConnector(BaseConnector):
                     "$orderby": "receivedDateTime desc",
                     "$select":  "id,subject,from,toRecipients,receivedDateTime,bodyPreview,body,importance,isRead,webLink,conversationId,hasAttachments",
                 }
-                r = await client.get(f"{GRAPH_API}/me/messages", headers=headers, params=params)
+                r = await client.get(f"{GRAPH_API}/me/mailFolders/inbox/messages", headers=headers, params=params)
                 if r.status_code == 200:
                     emails = r.json().get("value", [])
                     logger.info("[Outlook] %d emails fetched", len(emails))
                 else:
-                    logger.warning("[Outlook] /me/messages → %s: %s", r.status_code, r.text[:200])
+                    logger.warning("[Outlook] /me/mailFolders/inbox/messages → %s: %s", r.status_code, r.text[:200])
         except Exception as e:
             logger.warning("[Outlook] Fetch error: %s", e)
 

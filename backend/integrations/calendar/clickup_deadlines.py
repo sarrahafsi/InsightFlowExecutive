@@ -12,20 +12,22 @@ logger = logging.getLogger(__name__)
 COLOR = "#7B68EE"
 
 
-def fetch_clickup_deadlines(start: datetime, end: datetime) -> list[CalendarEvent]:
+def fetch_clickup_deadlines(start: datetime, end: datetime, org_id: str | None = None) -> list[CalendarEvent]:
     try:
         from core.database import SessionLocal
         from core.models import MessageRaw
 
         db = SessionLocal()
         try:
+            q = db.query(MessageRaw).filter(
+                MessageRaw.source == "clickup",
+                MessageRaw.timestamp >= start,
+                MessageRaw.timestamp <= end,
+            )
+            if org_id:
+                q = q.filter(MessageRaw.org_id == org_id)
             rows = (
-                db.query(MessageRaw)
-                .filter(
-                    MessageRaw.source == "clickup",
-                    MessageRaw.timestamp >= start,
-                    MessageRaw.timestamp <= end,
-                )
+                q
                 .order_by(MessageRaw.timestamp)
                 .limit(100)
                 .all()

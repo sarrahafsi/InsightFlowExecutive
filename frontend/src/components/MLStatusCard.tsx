@@ -62,6 +62,58 @@ const DRIFT_STATUS_CONFIG: Record<string, { color: string; bg: string; label: st
   no_report:         { color: "#748cab", bg: "#f8fafc", label: "Pas de rapport" },
 };
 
+interface AgentDecision {
+  strategy:             string;
+  root_cause:           string;
+  reasoning:            string;
+  label_filter:         string | null;
+  confidence:           string;
+  urgency:              string;
+  estimated_improvement:string;
+  llm_used:             boolean;
+}
+
+interface AgentLog {
+  agent_run_id:     string;
+  timestamp:        string;
+  dry_run:          boolean;
+  perception: {
+    total_pending:        number;
+    emotion_count:        number;
+    sentiment_count:      number;
+    emotion_systematic:   boolean;
+    sentiment_systematic: boolean;
+    dominant_emotion?:    { original_emotion: string; corrected_emotion: string; count: number } | null;
+    dominant_sentiment?:  { original_sentiment: string; corrected_sentiment: string; count: number } | null;
+    drift_emotion?:       string | null;
+    drift_sentiment?:     string | null;
+  };
+  decision:    AgentDecision;
+  execution: {
+    executed:     boolean;
+    status?:      string;
+    task?:        string;
+    label_filter?:string | null;
+    reason?:      string;
+  };
+  duration_seconds: number;
+}
+
+const STRATEGY_LABELS: Record<string, string> = {
+  targeted_emotion:   "Targeted emotion",
+  targeted_sentiment: "Targeted sentiment",
+  full_emotion:       "Full emotion retrain",
+  full_sentiment:     "Full sentiment retrain",
+  full_both:          "Full retrain (both)",
+  wait:               "Wait — collect more data",
+};
+
+const URGENCY_COLORS: Record<string, string> = {
+  immediate: "#ef4444",
+  tonight:   "#f59e0b",
+  can_wait:  "#22c55e",
+};
+
 export default function MLStatusCard() {
   const [status, setStatus]       = useState<MLStatus | null>(null);
   const [loading, setLoading]     = useState(true);
@@ -73,6 +125,10 @@ export default function MLStatusCard() {
   const [driftLoading, setDriftLoading] = useState(false);
   const [scheduler, setScheduler]       = useState<any | null>(null);
   const [triggeringAuto, setTriggeringAuto] = useState(false);
+  const [agentStatus, setAgentStatus]   = useState<any | null>(null);
+  const [agentLogs, setAgentLogs]       = useState<AgentLog[]>([]);
+  const [agentLogsExpanded, setAgentLogsExpanded] = useState(false);
+  const [triggeringAgent, setTriggeringAgent] = useState(false);
 
   const fetchStatus = () => {
     API.get("/api/ml/status")
@@ -87,13 +143,39 @@ export default function MLStatusCard() {
       .catch(() => {});
   };
 
+  const fetchAgentStatus = () => {
+    API.get("/api/ml/agent/status")
+      .then(r => setAgentStatus(r.data))
+      .catch(() => {});
+  };
+
+  const fetchAgentLogs = () => {
+    API.get("/api/ml/agent/log?n=10")
+      .then(r => setAgentLogs(r.data.logs ?? []))
+      .catch(() => {});
+  };
+
+  const handleTriggerAgent = async (dryRun = false) => {
+    setTriggeringAgent(true);
+    try {
+      await API.post(`/api/ml/agent/trigger?dry_run=${dryRun}`, {});
+      setRetrainMsg(`Agent autonome lancé${dryRun ? " (dry-run)" : ""}. Résultat dans quelques secondes...`);
+      setTimeout(() => { fetchAgentStatus(); fetchAgentLogs(); fetchScheduler(); }, 5000);
+    } catch (e: any) {
+      setRetrainMsg(`Erreur agent : ${e.message}`);
+    } finally {
+      setTriggeringAgent(false);
+    }
+  };
+
   useEffect(() => {
     fetchStatus();
     fetchScheduler();
-    // Polling toutes les 15s si training en cours
+    fetchAgentStatus();
     const interval = setInterval(() => {
       if (status?.training_in_progress) fetchStatus();
       fetchScheduler();
+      fetchAgentStatus();
     }, 15000);
     return () => clearInterval(interval);
   }, [status?.training_in_progress]);
@@ -525,6 +607,205 @@ export default function MLStatusCard() {
               </div>
             </div>
           )}
+
+          {/* ── Autonomous Agent ── */}
+          <div style={{ marginTop: "1.5rem", borderTop: "1px solid rgba(62,92,118,0.1)", paddingTop: "1.25rem" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#748cab" }}>
+                  Autonomous Agent
+                </div>
+                {agentStatus?.last_decision && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
+                    background: agentStatus.last_decision.llm_used ? "#3b82f620" : "rgba(62,92,118,0.1)",
+                    color: agentStatus.last_decision.llm_used ? "#3b82f6" : "#748cab",
+                    border: `1px solid ${agentStatus.last_decision.llm_used ? "#3b82f640" : "rgba(62,92,118,0.15)"}`,
+                  }}>
+                    {agentStatus.last_decision.llm_used ? "LLM reasoning" : "Rule-based"}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button
+                  onClick={() => handleTriggerAgent(true)}
+                  disabled={triggeringAgent}
+                  title="Analyze without executing (dry-run)"
+                  style={{
+                    padding: "5px 12px", borderRadius: 8,
+                    border: "1px solid rgba(62,92,118,0.2)",
+                    background: "#f8f9fa", color: "#3e5c76",
+                    fontSize: 11, cursor: triggeringAgent ? "not-allowed" : "pointer", fontWeight: 500,
+                  }}
+                >
+                  {triggeringAgent ? "⏳" : "Dry-run"}
+                </button>
+                <button
+                  onClick={() => handleTriggerAgent(false)}
+                  disabled={triggeringAgent || status?.training_in_progress}
+                  title="Run agent — analyze and act"
+                  style={{
+                    padding: "5px 12px", borderRadius: 8, border: "none",
+                    background: (triggeringAgent || status?.training_in_progress)
+                      ? "rgba(62,92,118,0.2)"
+                      : "linear-gradient(135deg,#1d2d44,#3e5c76)",
+                    color: (triggeringAgent || status?.training_in_progress) ? "#748cab" : "#f0ebd8",
+                    fontSize: 11, cursor: (triggeringAgent || status?.training_in_progress) ? "not-allowed" : "pointer",
+                    fontWeight: 600,
+                  }}
+                >
+                  ▷ Run Agent
+                </button>
+              </div>
+            </div>
+
+            {/* Last agent decision */}
+            {agentStatus?.last_decision ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {/* Strategy + urgency */}
+                <div style={{
+                  display: "flex", gap: 10, flexWrap: "wrap",
+                }}>
+                  <div style={{
+                    flex: 2, minWidth: 200,
+                    padding: "10px 14px", borderRadius: 10,
+                    background: "rgba(62,92,118,0.04)",
+                    border: "1px solid rgba(62,92,118,0.1)",
+                  }}>
+                    <div style={{ fontSize: 10, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                      Strategy
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#0d1321" }}>
+                      {STRATEGY_LABELS[agentStatus.last_decision.strategy] ?? agentStatus.last_decision.strategy}
+                    </div>
+                    {agentStatus.last_decision.label_filter && (
+                      <div style={{ fontSize: 11, color: "#748cab", marginTop: 3 }}>
+                        Labels: <strong style={{ color: "#8b5cf6" }}>{agentStatus.last_decision.label_filter}</strong>
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{
+                    flex: 1, minWidth: 120,
+                    padding: "10px 14px", borderRadius: 10,
+                    background: `${URGENCY_COLORS[agentStatus.last_decision.urgency] ?? "#748cab"}10`,
+                    border: `1px solid ${URGENCY_COLORS[agentStatus.last_decision.urgency] ?? "#748cab"}30`,
+                  }}>
+                    <div style={{ fontSize: 10, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Urgency</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: URGENCY_COLORS[agentStatus.last_decision.urgency] ?? "#748cab" }}>
+                      {agentStatus.last_decision.urgency?.replace("_", " ")}
+                    </div>
+                    <div style={{ fontSize: 10, color: "#748cab", marginTop: 2 }}>
+                      conf: {agentStatus.last_decision.confidence}
+                    </div>
+                  </div>
+
+                  <div style={{
+                    flex: 1, minWidth: 120,
+                    padding: "10px 14px", borderRadius: 10,
+                    background: agentStatus.executed ? "#f0fdf4" : "rgba(62,92,118,0.04)",
+                    border: `1px solid ${agentStatus.executed ? "#86efac" : "rgba(62,92,118,0.1)"}`,
+                  }}>
+                    <div style={{ fontSize: 10, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Execution</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: agentStatus.executed ? "#16a34a" : "#748cab" }}>
+                      {agentStatus.executed ? "✓ Executed" : "— Not run"}
+                    </div>
+                    {agentStatus.timestamp && (
+                      <div style={{ fontSize: 10, color: "#748cab", marginTop: 2 }}>
+                        {new Date(agentStatus.timestamp).toLocaleString("fr-FR", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Root cause */}
+                <div style={{
+                  padding: "10px 14px", borderRadius: 10,
+                  background: "rgba(62,92,118,0.03)",
+                  border: "1px solid rgba(62,92,118,0.08)",
+                }}>
+                  <div style={{ fontSize: 10, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Root cause</div>
+                  <div style={{ fontSize: 12, color: "#0d1321", lineHeight: 1.5 }}>
+                    {agentStatus.last_decision.root_cause}
+                  </div>
+                </div>
+
+                {/* Reasoning */}
+                <div style={{
+                  padding: "10px 14px", borderRadius: 10,
+                  background: "rgba(62,92,118,0.03)",
+                  border: "1px solid rgba(62,92,118,0.08)",
+                }}>
+                  <div style={{ fontSize: 10, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Reasoning</div>
+                  <div style={{ fontSize: 12, color: "#3e5c76", lineHeight: 1.5, fontStyle: "italic" }}>
+                    {agentStatus.last_decision.reasoning}
+                  </div>
+                  {agentStatus.last_decision.estimated_improvement && agentStatus.last_decision.estimated_improvement !== "N/A" && (
+                    <div style={{ fontSize: 11, color: "#22c55e", marginTop: 4 }}>
+                      Expected: {agentStatus.last_decision.estimated_improvement}
+                    </div>
+                  )}
+                </div>
+
+                {/* History toggle */}
+                <div>
+                  <button
+                    onClick={() => { setAgentLogsExpanded(v => !v); if (!agentLogsExpanded) fetchAgentLogs(); }}
+                    style={{
+                      background: "none", border: "none", cursor: "pointer",
+                      fontSize: 11, color: "#748cab", padding: 0,
+                      display: "flex", alignItems: "center", gap: 4,
+                    }}
+                  >
+                    <span style={{ transform: agentLogsExpanded ? "rotate(180deg)" : "rotate(0deg)", display: "inline-block", transition: "transform 0.2s" }}>▾</span>
+                    {agentLogsExpanded ? "Hide" : "Show"} decision history ({agentLogs.length > 0 ? agentLogs.length : "..."} runs)
+                  </button>
+
+                  {agentLogsExpanded && agentLogs.length > 0 && (
+                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                      {agentLogs.map((log, i) => (
+                        <div key={log.agent_run_id ?? i} style={{
+                          display: "flex", alignItems: "center", gap: 10,
+                          padding: "6px 12px", borderRadius: 8,
+                          background: i === 0 ? "rgba(62,92,118,0.06)" : "transparent",
+                          border: "1px solid rgba(62,92,118,0.07)",
+                          fontSize: 11,
+                        }}>
+                          <span style={{ color: "#748cab", minWidth: 110, flexShrink: 0 }}>
+                            {new Date(log.timestamp).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                          <span style={{
+                            fontWeight: 600,
+                            color: log.decision.strategy === "wait" ? "#94a3b8" : "#3e5c76",
+                            minWidth: 160,
+                          }}>
+                            {STRATEGY_LABELS[log.decision.strategy] ?? log.decision.strategy}
+                          </span>
+                          {log.decision.label_filter && (
+                            <span style={{ color: "#8b5cf6" }}>→ {log.decision.label_filter}</span>
+                          )}
+                          <span style={{ color: log.execution.executed ? "#22c55e" : "#94a3b8", marginLeft: "auto" }}>
+                            {log.execution.executed ? `✓ ${log.execution.status}` : log.dry_run ? "dry-run" : "—"}
+                          </span>
+                          <span style={{ color: "#748cab", minWidth: 50, textAlign: "right" }}>
+                            {log.duration_seconds?.toFixed(1)}s
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div style={{
+                fontSize: 13, color: "#748cab", padding: "1rem", textAlign: "center",
+                background: "rgba(62,92,118,0.03)", borderRadius: 10,
+              }}>
+                Agent not yet run.<br />
+                <span style={{ fontSize: 11 }}>Click "Run Agent" or "Dry-run" to start analysis.</span>
+              </div>
+            )}
+          </div>
 
           {/* ── Monitoring / Drift Detection ── */}
           <div style={{ marginTop: "1.5rem", borderTop: "1px solid rgba(62,92,118,0.1)", paddingTop: "1.25rem" }}>

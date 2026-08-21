@@ -51,6 +51,10 @@ export default function MessageDetailModal({
   const [sent,         setSent]         = useState(false);
   const [error,        setError]        = useState("");
 
+  // Attachments
+  const [attachments,  setAttachments]  = useState<File[]>([]);
+  const [dragOver,     setDragOver]     = useState(false);
+
   // Correction state (continuous learning)
   const [showCorrection,   setShowCorrection]   = useState(false);
   const [corrBusiness,     setCorrBusiness]     = useState(item.business_label ?? "");
@@ -100,19 +104,59 @@ export default function MessageDetailModal({
     }
   }
 
+  const ALLOWED_TYPES = new Set([
+    "image/jpeg", "image/png", "image/gif", "image/webp",
+    "application/pdf", "text/plain", "text/csv",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ]);
+  const MAX_SIZE = 10 * 1024 * 1024;
+
+  function addFiles(incoming: FileList | File[]) {
+    const newFiles = Array.from(incoming).filter(f => {
+      if (!ALLOWED_TYPES.has(f.type)) { alert(`Type non autorisé : ${f.name}`); return false; }
+      if (f.size > MAX_SIZE)          { alert(`Fichier trop volumineux (max 10 Mo) : ${f.name}`); return false; }
+      return true;
+    });
+    setAttachments(prev => [...prev, ...newFiles]);
+  }
+
+  function removeAttachment(index: number) {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  }
+
+  function formatSize(bytes: number) {
+    if (bytes < 1024)        return `${bytes} o`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+  }
+
+  function fileIcon(type: string) {
+    if (type.startsWith("image/"))         return "🖼️";
+    if (type === "application/pdf")        return "📄";
+    if (type.includes("word"))             return "📝";
+    if (type.includes("excel") || type.includes("spreadsheet")) return "📊";
+    return "📎";
+  }
+
   async function handleSend() {
     if (!draft.trim()) return;
     setSending(true);
     setError("");
     try {
-      await API.post("/api/emails/send", {
-        to:        draftTo,
-        subject:   draftSubject,
-        body:      draft,
-        thread_id: threadId,
-      });
+      const form = new FormData();
+      form.append("to",      draftTo);
+      form.append("subject", draftSubject);
+      form.append("body",    draft);
+      if (threadId) form.append("thread_id", threadId);
+      attachments.forEach(f => form.append("files", f));
+
+      await API.post("/api/emails/send", form);
       setSent(true);
       setDraft("");
+      setAttachments([]);
     } catch (e: any) {
       setError(e?.response?.data?.detail ?? "Erreur lors de l'envoi.");
     } finally {
@@ -321,6 +365,56 @@ export default function MessageDetailModal({
                   }}
                 />
 
+                {/* Pièces jointes */}
+                <div>
+                  {/* Drop zone */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={e => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
+                    onClick={() => document.getElementById("attachment-input")?.click()}
+                    style={{
+                      border: `2px dashed ${dragOver ? "#3e5c76" : "rgba(62,92,118,0.25)"}`,
+                      borderRadius: 10,
+                      padding: "10px 14px",
+                      display: "flex", alignItems: "center", gap: 8,
+                      cursor: "pointer",
+                      background: dragOver ? "#f0f4f8" : "#f8fafc",
+                      transition: "all 0.15s",
+                      fontSize: 12, color: "#748cab",
+                    }}
+                  >
+                    <span style={{ fontSize: 16 }}>📎</span>
+                    <span>Joindre fichiers ou photos — glisser-déposer ou cliquer</span>
+                    <span style={{ marginLeft: "auto", fontSize: 10, color: "#94a3b8" }}>PDF, Word, Excel, images · max 10 Mo</span>
+                  </div>
+                  <input
+                    id="attachment-input"
+                    type="file"
+                    multiple
+                    accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx"
+                    style={{ display: "none" }}
+                    onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }}
+                  />
+
+                  {/* Attached files list */}
+                  {attachments.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+                      {attachments.map((f, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", borderRadius: 8, background: "#fff", border: "1px solid rgba(62,92,118,0.12)", fontSize: 12 }}>
+                          <span>{fileIcon(f.type)}</span>
+                          <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#0d1321" }}>{f.name}</span>
+                          <span style={{ color: "#94a3b8", flexShrink: 0 }}>{formatSize(f.size)}</span>
+                          <button
+                            onClick={() => removeAttachment(i)}
+                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14, padding: "0 2px", lineHeight: 1 }}
+                          >✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* Actions */}
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
@@ -333,7 +427,7 @@ export default function MessageDetailModal({
                       fontSize: 13, fontWeight: 600, cursor: sending ? "not-allowed" : "pointer",
                     }}
                   >
-                    {sending ? "Envoi en cours..." : "Envoyer"}
+                    {sending ? "Envoi en cours..." : attachments.length > 0 ? `Envoyer (${attachments.length} pièce${attachments.length > 1 ? "s" : ""} jointe${attachments.length > 1 ? "s" : ""})` : "Envoyer"}
                   </button>
                   <button
                     onClick={handleGenerateDraft}
@@ -348,7 +442,7 @@ export default function MessageDetailModal({
                     Régénérer
                   </button>
                   <button
-                    onClick={() => setDraft("")}
+                    onClick={() => { setDraft(""); setAttachments([]); }}
                     style={{
                       padding: "10px 16px", borderRadius: 10,
                       border: "1px solid rgba(239,68,68,0.2)",

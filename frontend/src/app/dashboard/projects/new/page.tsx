@@ -1,8 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import API from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { getUser, isCEO } from "@/lib/auth";
 
 const COLORS = ["#3e5c76", "#0052CC", "#16a34a", "#dc2626", "#9333ea", "#ea580c", "#0891b2", "#be185d"];
 
@@ -12,6 +13,11 @@ export default function NewProjectPage() {
   const router      = useRouter();
   const { t }       = useI18n();
   const [step, setStep]               = useState<1 | 2>(1);
+
+  useEffect(() => {
+    const user = getUser();
+    if (user && !isCEO(user)) router.replace("/dashboard/projects");
+  }, [router]);
 
   // Step 1
   const [name, setName]               = useState("");

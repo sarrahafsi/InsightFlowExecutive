@@ -15,13 +15,16 @@ COLOR = "#6264A7"
 GRAPH_API = "https://graph.microsoft.com/v1.0"
 
 
-def _load_token() -> str | None:
+def _load_token(org_id: str | None = None) -> str | None:
     try:
         from core.database import SessionLocal
         from core.models import SourceConfig
         db = SessionLocal()
         try:
-            row = db.query(SourceConfig).filter(SourceConfig.source == "teams").first()
+            q = db.query(SourceConfig).filter(SourceConfig.source == "teams")
+            if org_id:
+                q = q.filter(SourceConfig.org_id == org_id)
+            row = q.first()
             if row:
                 cfg = row.config if isinstance(row.config, dict) else json.loads(row.config)
                 return cfg.get("access_token")
@@ -33,7 +36,7 @@ def _load_token() -> str | None:
 
 
 def _mock_events(start: datetime, end: datetime) -> list[CalendarEvent]:
-    monday = start - timedelta(days=start.weekday())
+    monday = start.replace(hour=0, minute=0, second=0, microsecond=0)
     events = []
 
     # Daily Standup every weekday 9h-9h30
@@ -83,8 +86,8 @@ def _mock_events(start: datetime, end: datetime) -> list[CalendarEvent]:
     return events
 
 
-async def fetch_teams_meetings(start: datetime, end: datetime) -> list[CalendarEvent]:
-    token = _load_token()
+async def fetch_teams_meetings(start: datetime, end: datetime, org_id: str | None = None) -> list[CalendarEvent]:
+    token = _load_token(org_id=org_id)
     if not token:
         logger.info("[TeamsCalendar] No token — returning mock events")
         return _mock_events(start, end)

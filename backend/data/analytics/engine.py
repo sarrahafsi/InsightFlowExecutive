@@ -15,10 +15,25 @@ from core.store import ItemStore
 from data.analytics.sentiment import has_escalation, extract_keywords
 
 # ─────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────
+
+def _since(since_days: int) -> datetime:
+    """
+    Retourne le début de la période en UTC.
+    since_days=1  → minuit aujourd'hui (pas les 24h glissantes)
+    since_days=7  → minuit il y a 6 jours (= 7 jours complets incluant aujourd'hui)
+    since_days=30 → minuit il y a 29 jours, etc.
+    """
+    today_midnight = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    return today_midnight - timedelta(days=since_days - 1)
+
+# ─────────────────────────────────────────────────────────
 # Constants
 # ─────────────────────────────────────────────────────────
 
-RISK_LABELS = {"Risk", "Blocked", "Urgent", "Conflict", "Overload"}
+RISK_LABELS       = {"Risk", "Blocked", "Urgent", "Conflict", "Overload"}
+RISK_TREND_LABELS = RISK_LABELS | {"Concern"}   # broader for trend chart
 
 BUSINESS_LABEL_ORDER = [
     "Blocked", "Urgent", "Risk", "Conflict", "Overload",
@@ -102,6 +117,8 @@ def compute_intelligence(items: list, since_days: int = 30) -> dict:
     Extract all organizational intelligence signals.
     This is the core of the Business Sentiment Intelligence system.
     """
+    # Exclure les emails envoyés — uniquement analyser les messages reçus
+    items = [i for i in items if "SENT" not in (i.tags or [])]
     total = max(len(items), 1)
     now = datetime.utcnow()
 
@@ -153,14 +170,16 @@ def compute_intelligence(items: list, since_days: int = 30) -> dict:
         day = (now - timedelta(days=timeline_days - 1 - d)).strftime("%Y-%m-%d")
         risk_trend_map[day] = 0
     for item in items:
-        if _get_business_label(item) in RISK_LABELS:
+        if _get_business_label(item) in RISK_TREND_LABELS:
             day = item.timestamp.strftime("%Y-%m-%d")
             if day in risk_trend_map:
                 risk_trend_map[day] += 1
 
     # Climate label
-    risk_rate = risk_count / total
+    risk_rate        = risk_count / total
     frustration_rate = emotion_counts.get("frustration", 0) / total
+    concern_rate     = business_counts.get("Concern", 0) / total
+    concern_em_rate  = emotion_counts.get("concern", 0) / total
     if risk_rate > 0.25 or frustration_rate > 0.30:
         climate = "critical"
         climate_label = "Critique"
@@ -169,7 +188,7 @@ def compute_intelligence(items: list, since_days: int = 30) -> dict:
         climate = "tense"
         climate_label = "Tendu"
         climate_color = "#f59e0b"
-    elif risk_rate > 0.05:
+    elif risk_rate > 0.05 or concern_rate > 0.40 or concern_em_rate > 0.30:
         climate = "moderate"
         climate_label = "Modéré"
         climate_color = "#eab308"
@@ -246,7 +265,7 @@ def compute_intelligence(items: list, since_days: int = 30) -> dict:
 
 def compute_overview(store: ItemStore, since_days: int = 30) -> dict:
     now = datetime.utcnow()
-    since = now - timedelta(days=since_days)
+    since = _since(since_days)
     items = store.all(since=since, limit=10_000)
     week_ago = now - timedelta(days=7)
     two_weeks_ago = now - timedelta(days=14)
@@ -328,7 +347,7 @@ def compute_overview(store: ItemStore, since_days: int = 30) -> dict:
 
 def compute_gmail(store: ItemStore, since_days: int = 30) -> dict:
     now = datetime.utcnow()
-    since = now - timedelta(days=since_days)
+    since = _since(since_days)
     items = store.all(source=SourceType.GMAIL, since=since, limit=10_000)
     week_ago   = now - timedelta(days=7)
     two_weeks_ago = now - timedelta(days=14)
@@ -378,8 +397,29 @@ def compute_gmail(store: ItemStore, since_days: int = 30) -> dict:
         thread_map[tid].append(item)
 
     thread_lengths = [len(v) for v in thread_map.values()]
+    def _thread_item(item) -> dict:
+        meta = item.metadata or {}
+        return {
+            "id":               item.id,
+            "title":            item.title,
+            "author":           item.author,
+            "timestamp":        item.timestamp.isoformat(),
+            "source":           item.source if isinstance(item.source, str) else item.source.value,
+            "snippet":          meta.get("snippet", ""),
+            "content":          item.content or "",
+            "business_label":   meta.get("business_label"),
+            "sentiment_label":  meta.get("sentiment_label"),
+            "emotion_label":    meta.get("emotion_label"),
+            "topic":            meta.get("topic"),
+            "business_reason":  meta.get("business_reason"),
+        }
+
     long_threads = [
-        {"subject": sorted(v, key=lambda x: x.timestamp)[0].title, "message_count": len(v)}
+        {
+            "subject":       sorted(v, key=lambda x: x.timestamp)[0].title,
+            "message_count": len(v),
+            "items":         [_thread_item(m) for m in sorted(v, key=lambda x: x.timestamp)],
+        }
         for v in thread_map.values() if len(v) > 3
     ]
     avg_thread = round(sum(thread_lengths) / max(len(thread_lengths), 1), 1)
@@ -497,7 +537,7 @@ def compute_gmail(store: ItemStore, since_days: int = 30) -> dict:
 
 def compute_jira(store: ItemStore, since_days: int = 30) -> dict:
     now = datetime.utcnow()
-    since = now - timedelta(days=since_days)
+    since = _since(since_days)
     items = store.all(source=SourceType.JIRA, since=since, limit=10_000)
     week_ago      = now - timedelta(days=7)
     two_weeks_ago = now - timedelta(days=14)
@@ -696,7 +736,7 @@ def compute_jira(store: ItemStore, since_days: int = 30) -> dict:
 
 def compute_generic(store: ItemStore, source_type: SourceType, since_days: int = 30) -> dict:
     now = datetime.utcnow()
-    since = now - timedelta(days=since_days)
+    since = _since(since_days)
     items = store.all(source=source_type, since=since, limit=10_000)
     week_ago = now - timedelta(days=7)
     two_weeks_ago = now - timedelta(days=14)
@@ -770,7 +810,7 @@ def compute_outlook(store: ItemStore, since_days: int = 30) -> dict:
     base = compute_generic(store, SourceType.OUTLOOK, since_days)
 
     now = datetime.utcnow()
-    since = now - timedelta(days=since_days)
+    since = _since(since_days)
     items = store.all(source=SourceType.OUTLOOK, since=since, limit=10_000)
     total = max(len(items), 1)
 
@@ -792,3 +832,109 @@ def compute_outlook(store: ItemStore, since_days: int = 30) -> dict:
         "unique_senders": len({i.author for i in items if i.author}),
     })
     return base
+
+
+# ─────────────────────────────────────────────────────────
+# CEO Intelligence Layer
+# ─────────────────────────────────────────────────────────
+
+def compute_attribution(store: ItemStore, since_days: int = 7) -> list:
+    """Per-author breakdown of alert business labels."""
+    since = _since(since_days)
+    items = store.all(since=since, limit=10_000)
+
+    author_counts: dict = defaultdict(lambda: defaultdict(int))
+    author_sources: dict = defaultdict(set)
+
+    for item in items:
+        label = _get_business_label(item)
+        if label in RISK_LABELS:
+            author = item.author or "Inconnu"
+            author_counts[author][label] += 1
+            author_counts[author]["total"] += 1
+            author_sources[author].add(item.source)
+
+    result = []
+    for author, counts in author_counts.items():
+        result.append({
+            "author":       author,
+            "sources":      list(author_sources[author]),
+            "blocked":      counts.get("Blocked", 0),
+            "urgent":       counts.get("Urgent", 0),
+            "risk":         counts.get("Risk", 0),
+            "conflict":     counts.get("Conflict", 0),
+            "overload":     counts.get("Overload", 0),
+            "total_alerts": counts["total"],
+        })
+    return sorted(result, key=lambda x: -x["total_alerts"])[:8]
+
+
+def compute_heatmap(store: ItemStore, since_days: int = 30) -> dict:
+    """Hour x Weekday matrix of tense/critical messages."""
+    DAY_NAMES = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
+    since = _since(since_days)
+    items = store.all(since=since, limit=10_000)
+
+    matrix = [[0] * 24 for _ in range(7)]
+    total_matrix = [[0] * 24 for _ in range(7)]
+
+    for item in items:
+        if not item.timestamp:
+            continue
+        wd = item.timestamp.weekday()
+        h = item.timestamp.hour
+        total_matrix[wd][h] += 1
+        label = _get_business_label(item)
+        emotion = (item.metadata or {}).get("emotion_label", "neutral")
+        if label in RISK_LABELS or emotion in ("frustration", "urgency"):
+            matrix[wd][h] += 1
+
+    data = [
+        {"day": DAY_NAMES[wd], "day_index": wd, "hour": h,
+         "count": matrix[wd][h], "total": total_matrix[wd][h]}
+        for wd in range(7)
+        for h in range(24)
+    ]
+    max_val = max((d["count"] for d in data), default=1) or 1
+
+    return {"days": DAY_NAMES, "hours": list(range(24)), "data": data, "max_value": max_val}
+
+
+def compute_priority_messages(store: ItemStore, since_days: int = 7, limit: int = 3) -> list:
+    """Top N most critical messages for the CEO to read now."""
+    since = _since(since_days)
+    items = store.all(since=since, limit=10_000)
+
+    def _score(item) -> int:
+        label   = _get_business_label(item)
+        emotion = (item.metadata or {}).get("emotion_label", "neutral")
+        score   = SEVERITY.get(label, 0) * 20
+        if emotion == "frustration": score += 10
+        elif emotion == "urgency":   score += 8
+        bs = float((item.metadata or {}).get("burnout_score") or 0)
+        score += int(bs * 10)
+        if (item.metadata or {}).get("is_after_hours"): score += 5
+        return score
+
+    candidates = [
+        i for i in items
+        if _get_business_label(i) in RISK_LABELS
+        or (i.metadata or {}).get("emotion_label") in ("frustration", "urgency")
+    ]
+    candidates.sort(key=_score, reverse=True)
+
+    return [
+        {
+            "id":               i.id,
+            "title":            (i.title or "")[:100],
+            "author":           i.author or "",
+            "source":           i.source,
+            "business_label":   _get_business_label(i),
+            "business_reason":  (i.metadata or {}).get("business_reason", ""),
+            "emotion_label":    (i.metadata or {}).get("emotion_label", ""),
+            "timestamp":        i.timestamp.isoformat(),
+            "url":              i.url or "",
+            "priority_score":   _score(i),
+        }
+        for i in candidates[:limit]
+    ]

@@ -1,26 +1,40 @@
 @import "tailwindcss";
 
+/* ── Light theme (default) ─────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-page:      #f5f3ee;
+  --bg-topbar:    #f5f3ee;
+  --bg-card:      #ffffff;
+  --bg-canvas:    linear-gradient(180deg, #f4f6f9 0%, #eef1f6 100%);
+  --bg-input:     #f8fafc;
+  --text-primary:   #0d1321;
+  --text-secondary: #748cab;
+  --border:       rgba(62, 92, 118, 0.1);
+  --border-top:   rgba(29, 45, 68, 0.08);
+  --shadow-card:  rgba(13, 19, 33, 0.06);
+  --shadow-hover: rgba(13, 19, 33, 0.12);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ── Dark theme ────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg-page:      #0f1923;
+  --bg-topbar:    #111e2e;
+  --bg-card:      #1a2738;
+  --bg-canvas:    linear-gradient(180deg, #111e2e 0%, #0d1a27 100%);
+  --bg-input:     #1a2738;
+  --text-primary:   #e2e8f0;
+  --text-secondary: #94a3b8;
+  --border:       rgba(148, 163, 184, 0.12);
+  --border-top:   rgba(148, 163, 184, 0.08);
+  --shadow-card:  rgba(0, 0, 0, 0.3);
+  --shadow-hover: rgba(0, 0, 0, 0.5);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "DM Sans", Arial, sans-serif;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
 }

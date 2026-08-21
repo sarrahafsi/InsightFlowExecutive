@@ -12,6 +12,7 @@ LLM Provider (config .env) :
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -30,6 +31,7 @@ class AskRequest(BaseModel):
     query:         str
     top_k:         int = 5
     source_filter: str | None = None
+    provider:      str | None = None  # "ollama" | "gpt" | "azure" — overrides .env
 
 
 class SourceDoc(BaseModel):
@@ -65,6 +67,49 @@ def _is_chitchat(query: str) -> bool:
     if len(q.split()) > 5:
         return False
     return any(q.startswith(p) or q == p for p in _CHITCHAT_PATTERNS)
+
+
+# ── Temporal filter detection ─────────────────────────────────
+
+def _parse_temporal_filter(query: str) -> str | None:
+    """
+    Detect temporal expressions in query and return an ISO date lower-bound.
+    Used to filter ChromaDB results to the relevant time window.
+    """
+    q = query.lower()
+    now = datetime.utcnow()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    if any(w in q for w in ["aujourd'hui", "ce jour", "today"]):
+        return today.isoformat()
+    if "hier" in q:
+        return (today - timedelta(days=1)).isoformat()
+    if any(w in q for w in ["cette semaine", "semaine en cours", "semaine actuelle", "cette sem."]):
+        monday = today - timedelta(days=today.weekday())
+        return monday.isoformat()
+    if any(w in q for w in ["semaine dernière", "semaine passée", "la semaine d'avant"]):
+        monday_last = today - timedelta(days=today.weekday() + 7)
+        return monday_last.isoformat()
+    if any(w in q for w in ["ce mois", "ce mois-ci", "mois en cours", "mois actuel"]):
+        return today.replace(day=1).isoformat()
+    if any(w in q for w in ["7 derniers jours", "7 jours", "last 7"]):
+        return (today - timedelta(days=7)).isoformat()
+    if any(w in q for w in ["30 derniers jours", "30 jours", "dernier mois"]):
+        return (today - timedelta(days=30)).isoformat()
+    if any(w in q for w in ["récent", "récents", "dernières 24h", "24h", "recent"]):
+        return (today - timedelta(days=2)).isoformat()
+    return None
+
+
+def _build_date_context() -> str:
+    """Return a date context string injected into the system prompt."""
+    now = datetime.utcnow()
+    monday = now - timedelta(days=now.weekday())
+    return (
+        f"\n\nDate actuelle : {now.strftime('%A %d %B %Y')} (UTC). "
+        f"'Cette semaine' = depuis le lundi {monday.strftime('%d/%m/%Y')}. "
+        f"Ne présente comme urgences de 'cette semaine' QUE les messages datés depuis cette date."
+    )
 
 
 # ── System prompts ────────────────────────────────────────────
@@ -123,8 +168,15 @@ async def ask(body: AskRequest):
     col = get_collection()
     indexed_count = col.count() if col else 0
 
+    # Effective provider : request override > .env default
+    req_provider = (body.provider or "").lower() or None
     provider_info = get_provider_info()
-    provider_name = provider_info["provider"]
+    effective_provider = req_provider or provider_info["provider"]
+    provider_name = effective_provider
+
+    # Detect temporal filter and build date-aware system prompt
+    since_date = _parse_temporal_filter(query)
+    system_prompt = SYSTEM_ANALYST + _build_date_context()
 
     # ── Chitchat : réponse directe sans contexte ──────────────
     if _is_chitchat(query):
@@ -132,14 +184,15 @@ async def ask(body: AskRequest):
             system=SYSTEM_CHITCHAT,
             user=query,
             use_tools=False,
+            provider=req_provider,
         )
         return AskResponse(
             answer=answer, sources=[], query=query,
             indexed_count=indexed_count, provider=provider_name,
         )
 
-    # ── Azure GPT-4o : MCP tools ──────────────────────────────
-    if provider_name == "azure":
+    # ── Azure : MCP tools ─────────────────────────────────────
+    if effective_provider == "azure":
         import asyncio
         from intelligence.rag.retriever import retrieve as _retrieve
 
@@ -147,67 +200,71 @@ async def ask(body: AskRequest):
         try:
             answer = await asyncio.wait_for(
                 complete(
-                    system=SYSTEM_ANALYST,
+                    system=system_prompt,
                     user=query,
                     use_tools=True,
                     db=db,
+                    provider=req_provider,
                 ),
                 timeout=90.0,
             )
         except asyncio.TimeoutError:
             logger.warning("[Ask/Azure] MCP timeout — fallback RAG seul")
-            rag_docs = _retrieve(query, top_k=body.top_k, source_filter=body.source_filter)
+            rag_docs = _retrieve(query, top_k=body.top_k, source_filter=body.source_filter, since_date=since_date)
             rag_relevant = [d for d in rag_docs if d.score <= 0.75]
             ctx = "\n\n---\n\n".join(
                 f"[{i+1}] {d.author} ({d.source}) — {d.timestamp[:10]}\n{d.text[:400]}"
                 for i, d in enumerate(rag_relevant)
             )
             answer = await complete(
-                system=SYSTEM_ANALYST,
+                system=system_prompt,
                 user=f"MESSAGES :\n{ctx}\n\nQUESTION : {query}",
                 use_tools=False,
+                provider=req_provider,
             )
         finally:
             db.close()
 
-        # RAG lookup pour afficher les sources dans le UI — seuil strict pour éviter le bruit
-        rag_docs = _retrieve(query, top_k=body.top_k, source_filter=body.source_filter)
+        rag_docs = _retrieve(query, top_k=body.top_k, source_filter=body.source_filter, since_date=since_date)
         rag_relevant = [d for d in rag_docs if d.score <= 0.55]
         sources = [
             SourceDoc(
-                id=d.id,
-                title=d.title or "(sans titre)",
-                author=d.author,
-                timestamp=d.timestamp,
-                source=d.source,
-                sentiment=d.sentiment_label,
+                id=d.id, title=d.title or "(sans titre)",
+                author=d.author, timestamp=d.timestamp,
+                source=d.source, sentiment=d.sentiment_label,
                 business=d.business_label,
                 excerpt=d.text[:200] + ("…" if len(d.text) > 200 else ""),
                 url=d.url or "",
             )
             for d in rag_relevant
         ]
-
         return AskResponse(
             answer=answer, sources=sources, query=query,
             indexed_count=indexed_count, provider=provider_name,
         )
 
-    # ── Ollama / OpenAI : RAG ChromaDB ───────────────────────
+    # ── Ollama / GPT : RAG ChromaDB ───────────────────────────
     from intelligence.rag.retriever import retrieve
 
     if indexed_count == 0:
         return AskResponse(
-            answer="Aucun message n'est encore indexé. Cliquez sur 🔄 pour initialiser la base de connaissances.",
+            answer="Aucun message n'est encore indexé. Cliquez sur ↻ pour initialiser la base de connaissances.",
             sources=[], query=query, indexed_count=0, provider=provider_name,
         )
 
-    docs = retrieve(query, top_k=body.top_k, source_filter=body.source_filter)
+    docs = retrieve(query, top_k=body.top_k, source_filter=body.source_filter, since_date=since_date)
+
+    if not docs and since_date:
+        docs = retrieve(query, top_k=body.top_k, source_filter=body.source_filter)
+        if docs:
+            system_prompt += "\n\nATTENTION : Aucun message trouvé pour la période demandée. Les résultats ci-dessous sont les plus récents disponibles — précise leurs dates dans ta réponse."
+
     relevant = [d for d in docs if d.score <= 0.75]
 
     if not relevant:
+        period = " pour la période demandée" if since_date else ""
         return AskResponse(
-            answer="Je n'ai pas trouvé d'informations pertinentes dans vos données pour répondre à cette question.",
+            answer=f"Je n'ai pas trouvé d'informations pertinentes{period} dans vos données.",
             sources=[], query=query, indexed_count=indexed_count, provider=provider_name,
         )
 
@@ -219,19 +276,17 @@ async def ask(body: AskRequest):
     )
 
     answer = await complete(
-        system=SYSTEM_ANALYST,
+        system=system_prompt,
         user=f"MESSAGES :\n{context}\n\nQUESTION : {query}",
         use_tools=False,
+        provider=req_provider,
     )
 
     sources = [
         SourceDoc(
-            id=d.id,
-            title=d.title or "(sans titre)",
-            author=d.author,
-            timestamp=d.timestamp,
-            source=d.source,
-            sentiment=d.sentiment_label,
+            id=d.id, title=d.title or "(sans titre)",
+            author=d.author, timestamp=d.timestamp,
+            source=d.source, sentiment=d.sentiment_label,
             business=d.business_label,
             excerpt=d.text[:200] + ("…" if len(d.text) > 200 else ""),
             url=d.url or "",

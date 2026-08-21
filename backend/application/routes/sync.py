@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 from integrations.connectors import ConnectorManager, SourceType, SyncResult
 from core.store import ItemStore
+from core.models import User
+from core.security import get_current_user
 from application.deps import get_manager, get_store
 from core.database import SessionLocal
 
@@ -56,6 +58,7 @@ async def trigger_sync(
     background_tasks: BackgroundTasks,
     manager: Annotated[ConnectorManager, Depends(get_manager)],
     store: Annotated[ItemStore, Depends(get_store)],
+    current_user: User = Depends(get_current_user),
 ):
     """
     Trigger a data sync from all (or specific) connectors.
@@ -64,6 +67,13 @@ async def trigger_sync(
     - **since_days**: how many days back to pull data (default 7)
     """
     since = datetime.utcnow() - timedelta(days=body.since_days)
+
+    # Inject org_id into per-org OAuth connectors so they load the right credentials
+    for connector in manager._connectors.values():
+        if not connector.config.get("org_id"):
+            connector.config["org_id"] = current_user.org_id
+            connector._authenticated = False  # force re-auth with correct org
+
     results: list[SyncResult] = await manager.sync_all(
         since=since, sources=body.sources
     )
@@ -86,7 +96,7 @@ async def trigger_sync(
             from main import _build_data_item
             db = SessionLocal()
             try:
-                etl_inserted = load_items(fetched_items, db, run_nlp=False)
+                etl_inserted = load_items(fetched_items, db, run_nlp=False, org_id=current_user.org_id)
                 new_ids = [i.id for i in fetched_items]
                 # Recharger le store immédiatement (sans labels NLP pour l'instant)
                 rows = load_from_db(db, since_days=body.since_days + 7)
@@ -108,6 +118,22 @@ async def trigger_sync(
         background_tasks.add_task(_run_nlp_background, new_ids, body.since_days, store)
 
     summary = manager.summary(results)
+
+    # Broadcast sync result to all connected WebSocket clients
+    try:
+        from core.ws_manager import ws_manager
+        import asyncio
+        asyncio.create_task(ws_manager.broadcast({
+            "type": "sync_complete",
+            "new_items": etl_inserted,
+            "timestamp": now.isoformat(),
+            "sources": {
+                source: {"items": info["items"], "success": info["success"]}
+                for source, info in summary["by_source"].items()
+            },
+        }))
+    except Exception:
+        pass
 
     return SyncResponse(
         triggered_at=now,

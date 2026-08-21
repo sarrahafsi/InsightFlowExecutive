@@ -54,6 +54,25 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
 
+    # Real-time / WebSocket
+    # Set WEBHOOK_BASE_URL to your ngrok URL when testing webhooks locally
+    # e.g. WEBHOOK_BASE_URL=https://abc123.ngrok-free.app
+    webhook_base_url: str = "http://localhost:8000"
+    # Gmail Pub/Sub topic for push notifications
+    # e.g. projects/my-gcp-project/topics/gmail-push
+    gmail_pubsub_topic: str = ""
+    # Slack signing secret (from your Slack app settings)
+    slack_signing_secret: str = ""
+    # Auto-sync interval in seconds (default: 120 = 2 minutes)
+    auto_sync_interval: int = 120
+
+    # Frontend URL (used for OAuth redirects after callback)
+    frontend_url: str = "http://localhost:3000"
+
+    # JWT Auth
+    secret_key: str = "insightflow-secret-change-in-production"
+    access_token_expire_hours: int = 8
+
     class Config:
         env_file = ".env"
 

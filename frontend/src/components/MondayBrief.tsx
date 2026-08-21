@@ -13,7 +13,7 @@ export default function MondayBrief({ sinceDays = 7 }: { sinceDays?: number }) {
     setLoading(true);
     setError(null);
     try {
-      const r = await API.get(`/api/brief/weekly?since_days=${sinceDays}`);
+      const r = await API.get(`/api/brief/weekly?since_days=${sinceDays}&lang=${locale}`);
       setBrief(r.data);
     } catch (e: any) {
       setError(e.message);

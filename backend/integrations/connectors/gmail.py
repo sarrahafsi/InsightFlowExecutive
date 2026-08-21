@@ -93,11 +93,11 @@ class GmailConnector(BaseConnector):
             return
 
         from application.routes.auth import get_gmail_credentials
-        creds = get_gmail_credentials()
+        org_id = self.config.get("org_id")
+        creds = get_gmail_credentials(org_id)
         if not creds or not creds.valid:
-            raise RuntimeError(
-                "Gmail not authenticated. Visit http://localhost:8000/auth/gmail to authorize."
-            )
+            # Not configured — BaseConnector.sync() will skip silently
+            return
 
         from googleapiclient.discovery import build
         self._service = build("gmail", "v1", credentials=creds)
@@ -114,9 +114,17 @@ class GmailConnector(BaseConnector):
         since_date = since.strftime("%Y/%m/%d")
         query = f"(in:inbox OR in:sent) -category:promotions -label:spam -label:junk after:{since_date}"
 
-        response = self._service.users().messages().list(
-            userId="me", q=query, maxResults=200
-        ).execute()
+        try:
+            response = self._service.users().messages().list(
+                userId="me", q=query, maxResults=200
+            ).execute()
+        except Exception as e:
+            if "invalid_grant" in str(e):
+                # Token revoked — auto-delete credentials and stop spamming errors
+                self._delete_stale_credentials()
+                self._authenticated = False
+                return []
+            raise
 
         messages = response.get("messages", [])
         raw_items = []
@@ -200,18 +208,54 @@ class GmailConnector(BaseConnector):
     # Helpers
     # ------------------------------------------------------------------
 
-    def send_email(self, to: str, subject: str, body: str, thread_id: str | None = None) -> str:
+    def _delete_stale_credentials(self) -> None:
+        """Remove invalid Gmail credentials from source_configs to stop invalid_grant spam."""
+        try:
+            from core.database import SessionLocal
+            from core.models import SourceConfig
+            org_id = self.config.get("org_id")
+            db = SessionLocal()
+            try:
+                q = db.query(SourceConfig).filter(SourceConfig.source == "gmail")
+                if org_id is not None:
+                    q = q.filter(SourceConfig.org_id == org_id)
+                q.delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
+        except Exception:
+            pass
+
+    def send_email(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        thread_id: str | None = None,
+        attachments: list[tuple[str, bytes, str]] | None = None,
+    ) -> str:
         """
         Envoie un email via Gmail API.
+        attachments: list of (filename, file_bytes, content_type)
         Retourne le message_id Gmail de l'email envoyé.
         """
-        import email.mime.text
+        import email.encoders
+        import email.mime.base
         import email.mime.multipart
+        import email.mime.text
 
         msg = email.mime.multipart.MIMEMultipart()
         msg["To"]      = to
         msg["Subject"] = subject
         msg.attach(email.mime.text.MIMEText(body, "plain", "utf-8"))
+
+        for filename, file_bytes, content_type in (attachments or []):
+            maintype, subtype = content_type.split("/", 1) if "/" in content_type else ("application", "octet-stream")
+            part = email.mime.base.MIMEBase(maintype, subtype)
+            part.set_payload(file_bytes)
+            email.encoders.encode_base64(part)
+            part.add_header("Content-Disposition", "attachment", filename=filename)
+            msg.attach(part)
 
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
         payload: dict = {"raw": raw}

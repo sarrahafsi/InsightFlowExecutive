@@ -35,6 +35,10 @@ AUTO_RETRAIN_MIN_SAMPLES = int(os.getenv("AUTO_RETRAIN_MIN_SAMPLES", "20"))
 AUTO_RETRAIN_CRON_HOUR   = int(os.getenv("AUTO_RETRAIN_CRON_HOUR",   "2"))
 AUTO_RETRAIN_CRON_MINUTE = int(os.getenv("AUTO_RETRAIN_CRON_MINUTE", "0"))
 
+# Anomaly detection schedule (default: 06:00 UTC every day)
+ANOMALY_CRON_HOUR   = int(os.getenv("ANOMALY_CRON_HOUR",   "6"))
+ANOMALY_CRON_MINUTE = int(os.getenv("ANOMALY_CRON_MINUTE", "0"))
+
 ML_DIR      = Path(__file__).parent.parent / "ml"
 SCRIPT_PATH = ML_DIR / "continuous_learning.py"
 
@@ -169,8 +173,10 @@ def _run_finetuning_subprocess(task: str) -> dict:
 
 async def auto_retrain_job():
     """
-    Job planifié : vérifie les conditions et lance le fine-tuning si nécessaire.
-    Tourne de façon asynchrone pour ne pas bloquer FastAPI.
+    Job planifié : délègue la décision de retraining à l'agent autonome.
+    L'agent analyse les patterns de corrections, raisonne via LLM, et choisit
+    la meilleure stratégie (targeted vs full, quelle tâche, quelle urgence).
+    Fallback sur la logique rule-based si l'agent est indisponible.
     """
     import asyncio
 
@@ -183,64 +189,193 @@ async def auto_retrain_job():
         logger.info("[AutoRetrain] Désactivé (AUTO_RETRAIN_ENABLED=false)")
         return
 
-    # ── 1. Lire les corrections disponibles ──
+    # ── Essayer l'agent autonome ──
+    try:
+        sys.path.insert(0, str(ML_DIR))
+        from autonomous_agent import AutonomousLearningAgent
+
+        logger.info("[AutoRetrain] Lancement de l'agent autonome...")
+
+        def _run_agent():
+            agent = AutonomousLearningAgent()
+            return agent.run(min_samples=max(1, AUTO_RETRAIN_MIN_SAMPLES // 2), epochs=3)
+
+        log = await asyncio.to_thread(_run_agent)
+
+        strategy  = log["decision"].get("strategy", "wait")
+        executed  = log["execution"].get("executed", False)
+        exec_status = log["execution"].get("status", "not_executed")
+
+        logger.info("[AutoRetrain] Agent décision: strategy=%s, executed=%s, status=%s",
+                    strategy, executed, exec_status)
+
+        _last_run.update({
+            "triggered_at":    now.isoformat(),
+            "trigger_reason":  f"agent: {log['decision'].get('root_cause', strategy)}",
+            "status":          "completed" if executed else "no_action_needed",
+            "tasks_launched":  [log["execution"].get("task")] if executed else [],
+            "result":          log,
+            "agent_decision":  log["decision"],
+        })
+        return
+
+    except Exception as e:
+        logger.warning("[AutoRetrain] Agent indisponible (%s) — fallback rule-based", e)
+
+    # ── Fallback : logique rule-based originale ──
     corrections = _count_pending_corrections()
-    logger.info("[AutoRetrain] Corrections disponibles : sentiment=%d, emotion=%d",
+    logger.info("[AutoRetrain] Fallback — corrections: sentiment=%d, emotion=%d",
                 corrections["sentiment"], corrections["emotion"])
 
-    # ── 2. Décider quoi entraîner ──
     tasks_to_train = _decide_tasks_to_train(corrections)
 
     if not tasks_to_train:
-        logger.info(
-            "[AutoRetrain] Aucun entraînement nécessaire "
-            "(sentiment=%d/%d, emotion=%d/%d corrections, aucun drift)",
-            corrections["sentiment"], AUTO_RETRAIN_MIN_SAMPLES,
-            corrections["emotion"],   AUTO_RETRAIN_MIN_SAMPLES,
-        )
+        logger.info("[AutoRetrain] Fallback — aucun entraînement nécessaire")
         _last_run.update({
             "triggered_at":   now.isoformat(),
-            "trigger_reason": "check_only",
+            "trigger_reason": "fallback_check_only",
             "status":         "no_action_needed",
             "tasks_launched": [],
             "result":         {"corrections": corrections},
         })
         return
 
-    # ── 3. Lancer les fine-tunings ──
     results = []
     for task, reason in tasks_to_train:
-        logger.info("[AutoRetrain] Démarrage fine-tuning %s (%s)", task, reason)
-        # On lance dans un thread pour ne pas bloquer la boucle async
-        result = await asyncio.get_event_loop().run_in_executor(
-            None, _run_finetuning_subprocess, task
-        )
+        logger.info("[AutoRetrain] Fallback fine-tuning %s (%s)", task, reason)
+        result = await asyncio.to_thread(_run_finetuning_subprocess, task)
         result["reason"] = reason
         results.append(result)
-        logger.info("[AutoRetrain] Résultat %s : %s", task, result["status"])
+
+    successes = sum(1 for r in results if r["status"] == "success")
+    logger.info("[AutoRetrain] Fallback terminé — %d/%d tâches réussies", successes, len(results))
 
     _last_run.update({
         "triggered_at":   now.isoformat(),
-        "trigger_reason": ", ".join(f"{t}: {r}" for t, r in tasks_to_train),
+        "trigger_reason": "fallback: " + ", ".join(f"{t}: {r}" for t, r in tasks_to_train),
         "status":         "completed",
         "tasks_launched": [t for t, _ in tasks_to_train],
         "result":         results,
     })
-
-    successes = sum(1 for r in results if r["status"] == "success")
-    logger.info("[AutoRetrain] Pipeline terminé — %d/%d tâches réussies",
-                successes, len(results))
 
 
 # ══════════════════════════════════════════════════════════════════════
 # DÉMARRAGE / ARRÊT DU SCHEDULER (appelé depuis main.py lifespan)
 # ══════════════════════════════════════════════════════════════════════
 
+async def nlp_enrichment_job():
+    """
+    Job périodique : applique le pipeline NLP sur les items insérés sans enrichissement.
+    Tourne toutes les 10 minutes pour traiter les items issus des syncs Gmail/ClickUp/Jira.
+    """
+    import asyncio
+    from core.database import SessionLocal
+    from data.etl.loader import reprocess_unenriched
+
+    db = SessionLocal()
+    try:
+        # Check if there are unenriched items before spinning up the pipeline
+        from core.models import MessageRaw
+        count = db.query(MessageRaw).filter(MessageRaw.sentiment_label.is_(None)).count()
+        if count == 0:
+            return
+        logger.info("[NLP-Enrichment] %d items sans NLP détectés — lancement pipeline...", count)
+        n = await asyncio.to_thread(reprocess_unenriched, db, 100)
+        if n:
+            logger.info("[NLP-Enrichment] %d items enrichis avec NLP.", n)
+    except Exception as e:
+        logger.error("[NLP-Enrichment] Erreur : %s", e)
+    finally:
+        db.close()
+
+
+def gmail_periodic_sync_job():
+    """
+    Job périodique SYNCHRONE : sync Gmail pour toutes les orgs configurées.
+    Tourne toutes les 15 minutes — exécuté dans le thread pool (pas l'event loop).
+    """
+    from core.database import SessionLocal
+    from core.models import SourceConfig
+
+    db = SessionLocal()
+    try:
+        rows = db.query(SourceConfig).filter(SourceConfig.source == "gmail").all()
+        org_ids = [r.org_id for r in rows]
+    except Exception as e:
+        logger.warning("[Gmail-Sync] Impossible de lire source_configs : %s", e)
+        return
+    finally:
+        db.close()
+
+    if not org_ids:
+        return
+
+    logger.info("[Gmail-Sync] Sync périodique pour %d org(s)…", len(org_ids))
+
+    from application.routes.auth import _do_gmail_sync_blocking
+    for org_id in org_ids:
+        try:
+            n = _do_gmail_sync_blocking(org_id)
+            if n:
+                logger.info("[Gmail-Sync] org=%s → %d nouveaux items", org_id, n)
+        except Exception as e:
+            logger.warning("[Gmail-Sync] org=%s erreur : %s", org_id, e)
+
+
+async def anomaly_detection_job():
+    """
+    Job planifié : détecte les anomalies comportementales sur toutes les sources.
+    Tourne chaque jour à ANOMALY_CRON_HOUR:ANOMALY_CRON_MINUTE UTC.
+    Sauvegarde les nouveaux événements en base et écrase ceux du jour.
+    """
+    from datetime import date
+    from core.database import SessionLocal
+    from intelligence.anomaly.detector import run_detection
+    from core.models import AnomalyEvent
+
+    now = datetime.utcnow()
+    logger.info("[Anomaly] ── Détection automatique (%s) ──", now.strftime("%Y-%m-%d %H:%M"))
+
+    db = SessionLocal()
+    try:
+        anomalies = run_detection(db, user_id="default", window_days=14)
+
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        for a in anomalies:
+            db.query(AnomalyEvent).filter(
+                AnomalyEvent.source == a["source"],
+                AnomalyEvent.detected_at >= today_start,
+            ).delete()
+
+        for a in anomalies:
+            db.add(AnomalyEvent(**a))
+        db.commit()
+
+        if anomalies:
+            logger.info(
+                "[Anomaly] %d anomalie(s) détectée(s) : %s",
+                len(anomalies),
+                [f"{a['source']}({a['severity']})" for a in anomalies],
+            )
+        else:
+            logger.info("[Anomaly] Aucune anomalie détectée — tout normal.")
+
+    except Exception as e:
+        logger.error("[Anomaly] Erreur lors de la détection automatique : %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
 def start_scheduler():
     """Démarre le scheduler APScheduler. Appelé au démarrage de FastAPI."""
     global _scheduler
 
-    _scheduler = AsyncIOScheduler(timezone="UTC")
+    from apscheduler.executors.pool import ThreadPoolExecutor as _TPE
+    _scheduler = AsyncIOScheduler(
+        timezone="UTC",
+        executors={"default": {"type": "asyncio"}, "threadpool": _TPE(max_workers=3)},
+    )
 
     _scheduler.add_job(
         auto_retrain_job,
@@ -252,16 +387,65 @@ def start_scheduler():
         id="auto_retrain_nightly",
         name="Auto-Retraining Nightly Check",
         replace_existing=True,
-        misfire_grace_time=3600,  # si le serveur était éteint, tolère 1h de retard
+        misfire_grace_time=3600,
+    )
+
+    _scheduler.add_job(
+        nlp_enrichment_job,
+        trigger="interval",
+        minutes=30,
+        id="nlp_enrichment_periodic",
+        name="NLP Enrichment — items non enrichis",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+
+    _scheduler.add_job(
+        gmail_periodic_sync_job,
+        trigger="interval",
+        minutes=15,
+        id="gmail_periodic_sync",
+        name="Gmail — sync périodique toutes les 15 min",
+        replace_existing=True,
+        misfire_grace_time=120,
+        executor="threadpool",
+    )
+
+    _scheduler.add_job(
+        anomaly_detection_job,
+        trigger=CronTrigger(
+            hour=ANOMALY_CRON_HOUR,
+            minute=ANOMALY_CRON_MINUTE,
+            timezone="UTC",
+        ),
+        id="anomaly_daily",
+        name="Anomaly Detection Daily",
+        replace_existing=True,
+        misfire_grace_time=3600,
     )
 
     _scheduler.start()
-    next_run = _scheduler.get_job("auto_retrain_nightly").next_run_time
+    next_retrain = _scheduler.get_job("auto_retrain_nightly").next_run_time
+    next_anomaly = _scheduler.get_job("anomaly_daily").next_run_time
+    next_nlp     = _scheduler.get_job("nlp_enrichment_periodic").next_run_time
+    next_gmail   = _scheduler.get_job("gmail_periodic_sync").next_run_time
     logger.info(
         "[AutoRetrain] Scheduler démarré — prochain run : %s (min_samples=%d, enabled=%s)",
-        next_run.strftime("%Y-%m-%d %H:%M UTC") if next_run else "N/A",
+        next_retrain.strftime("%Y-%m-%d %H:%M UTC") if next_retrain else "N/A",
         AUTO_RETRAIN_MIN_SAMPLES,
         AUTO_RETRAIN_ENABLED,
+    )
+    logger.info(
+        "[Anomaly] Job quotidien configuré — prochain run : %s",
+        next_anomaly.strftime("%Y-%m-%d %H:%M UTC") if next_anomaly else "N/A",
+    )
+    logger.info(
+        "[NLP-Enrichment] Job périodique configuré (toutes les 30 min) — prochain run : %s",
+        next_nlp.strftime("%Y-%m-%d %H:%M UTC") if next_nlp else "N/A",
+    )
+    logger.info(
+        "[Gmail-Sync] Job périodique configuré (toutes les 15 min) — prochain run : %s",
+        next_gmail.strftime("%Y-%m-%d %H:%M UTC") if next_gmail else "N/A",
     )
 
 
@@ -277,20 +461,24 @@ def get_scheduler_status() -> dict:
     """Retourne l'état du scheduler (pour le endpoint /api/ml/scheduler)."""
     if not _scheduler:
         return {
-            "running":     False,
-            "enabled":     AUTO_RETRAIN_ENABLED,
-            "min_samples": AUTO_RETRAIN_MIN_SAMPLES,
-            "schedule":    f"Tous les jours à {AUTO_RETRAIN_CRON_HOUR:02d}:{AUTO_RETRAIN_CRON_MINUTE:02d} UTC",
-            "next_run":    None,
-            "last_run":    _last_run,
+            "running":         False,
+            "enabled":         AUTO_RETRAIN_ENABLED,
+            "min_samples":     AUTO_RETRAIN_MIN_SAMPLES,
+            "retrain_schedule": f"Tous les jours à {AUTO_RETRAIN_CRON_HOUR:02d}:{AUTO_RETRAIN_CRON_MINUTE:02d} UTC",
+            "anomaly_schedule": f"Tous les jours à {ANOMALY_CRON_HOUR:02d}:{ANOMALY_CRON_MINUTE:02d} UTC",
+            "next_run":        None,
+            "last_run":        _last_run,
         }
 
-    job = _scheduler.get_job("auto_retrain_nightly")
+    job_retrain = _scheduler.get_job("auto_retrain_nightly")
+    job_anomaly = _scheduler.get_job("anomaly_daily")
     return {
-        "running":          _scheduler.running,
-        "enabled":          AUTO_RETRAIN_ENABLED,
-        "min_samples":      AUTO_RETRAIN_MIN_SAMPLES,
-        "schedule":         f"Tous les jours à {AUTO_RETRAIN_CRON_HOUR:02d}:{AUTO_RETRAIN_CRON_MINUTE:02d} UTC",
-        "next_run":         job.next_run_time.isoformat() if job and job.next_run_time else None,
-        "last_run":         _last_run,
+        "running":                _scheduler.running,
+        "enabled":                AUTO_RETRAIN_ENABLED,
+        "min_samples":            AUTO_RETRAIN_MIN_SAMPLES,
+        "retrain_schedule":       f"Tous les jours à {AUTO_RETRAIN_CRON_HOUR:02d}:{AUTO_RETRAIN_CRON_MINUTE:02d} UTC",
+        "anomaly_schedule":       f"Tous les jours à {ANOMALY_CRON_HOUR:02d}:{ANOMALY_CRON_MINUTE:02d} UTC",
+        "next_retrain_run":       job_retrain.next_run_time.isoformat() if job_retrain and job_retrain.next_run_time else None,
+        "next_anomaly_run":       job_anomaly.next_run_time.isoformat() if job_anomaly and job_anomaly.next_run_time else None,
+        "last_run":               _last_run,
     }

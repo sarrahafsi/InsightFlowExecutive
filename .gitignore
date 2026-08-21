@@ -55,3 +55,15 @@ Thumbs.db
 # ML — charts et datasets optionnels (à toi de décider)
 # ml/charts/      # décommente si tu veux exclure les charts
 # ml/dataset/     # décommente si tu veux exclure les datasets (gros fichiers)
+
+# Binaires / scripts scratch (non applicatifs)
+ngrok.exe
+*_explication.html
+ml_complet_explication.html
+backend/benchmark_*.py
+backend/benchmark_images/
+backend/benchmark_results*.csv
+ml/benchmark_voice.py
+backend/check_*.py
+backend/diag.py
+backend/fix_org.py

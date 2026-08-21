@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import API from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { getUser, isCEO } from "@/lib/auth";
 
 interface Project {
   id: string;
@@ -59,6 +60,8 @@ function timeAgo(dateStr: string): string {
 export default function ProjectsPage() {
   const router = useRouter();
   const { t, locale } = useI18n();
+  const currentUser = getUser();
+  const canCreate   = currentUser ? isCEO(currentUser) : false;
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading]   = useState(true);
   const [filter, setFilter]     = useState<"all" | "on_track" | "at_risk" | "off_track">("all");
@@ -107,21 +110,23 @@ export default function ProjectsPage() {
             }
           </p>
         </div>
-        <button
-          className="new-btn"
-          onClick={() => router.push("/dashboard/projects/new")}
-          style={{
-            display: "flex", alignItems: "center", gap: 8,
-            background: "linear-gradient(135deg, #1d2d44, #3e5c76)",
-            color: "#f0ebd8", border: "none", borderRadius: 11,
-            padding: "11px 22px", fontSize: 13, fontWeight: 600,
-            cursor: "pointer", fontFamily: "DM Sans, sans-serif",
-            boxShadow: "0 4px 14px rgba(29,45,68,0.2)", transition: "all 0.2s",
-          }}
-        >
-          <span style={{ fontSize: 16 }}>＋</span>
-          {locale === "fr" ? "Nouveau projet" : "New Project"}
-        </button>
+        {canCreate && (
+          <button
+            className="new-btn"
+            onClick={() => router.push("/dashboard/projects/new")}
+            style={{
+              display: "flex", alignItems: "center", gap: 8,
+              background: "linear-gradient(135deg, #1d2d44, #3e5c76)",
+              color: "#f0ebd8", border: "none", borderRadius: 11,
+              padding: "11px 22px", fontSize: 13, fontWeight: 600,
+              cursor: "pointer", fontFamily: "DM Sans, sans-serif",
+              boxShadow: "0 4px 14px rgba(29,45,68,0.2)", transition: "all 0.2s",
+            }}
+          >
+            <span style={{ fontSize: 16 }}>＋</span>
+            {locale === "fr" ? "Nouveau projet" : "New Project"}
+          </button>
+        )}
       </div>
 
       {/* ── Filter tabs ─────────────────────────────────────────────── */}

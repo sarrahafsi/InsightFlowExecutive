@@ -79,8 +79,12 @@ MIN_SAMPLES_DEFAULT = 20
 # 1. EXTRACTION DES CORRECTIONS DEPUIS POSTGRESQL
 # ══════════════════════════════════════════════════════════════════════
 
-def fetch_corrections(task: str) -> pd.DataFrame:
-    """Récupère les corrections humaines non encore utilisées."""
+def fetch_corrections(task: str, label_filter: list[str] | None = None) -> pd.DataFrame:
+    """
+    Récupère les corrections humaines non encore utilisées.
+    label_filter: si fourni, ne garde que les corrections vers ces labels spécifiques
+                  (targeted fine-tuning — e.g. ['frustration', 'urgency']).
+    """
     conn = psycopg2.connect(DB_URL)
     cur  = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -91,24 +95,40 @@ def fetch_corrections(task: str) -> pd.DataFrame:
     }
     corrected_col, original_col = col_map[task]
 
-    cur.execute(f"""
-        SELECT id, text_snapshot AS text,
-               {corrected_col} AS label,
-               {original_col}  AS original_label
-        FROM human_corrections
-        WHERE used_in_training = FALSE
-          AND {corrected_col} IS NOT NULL
-          AND text_snapshot IS NOT NULL
-          AND LENGTH(text_snapshot) > 20
-        ORDER BY corrected_at ASC
-    """)
+    if label_filter:
+        placeholders = ",".join(["%s"] * len(label_filter))
+        cur.execute(f"""
+            SELECT id, text_snapshot AS text,
+                   {corrected_col} AS label,
+                   {original_col}  AS original_label
+            FROM human_corrections
+            WHERE used_in_training = FALSE
+              AND {corrected_col} IS NOT NULL
+              AND ({corrected_col} IN ({placeholders}) OR {original_col} IN ({placeholders}))
+              AND text_snapshot IS NOT NULL
+              AND LENGTH(text_snapshot) > 20
+            ORDER BY corrected_at ASC
+        """, label_filter + label_filter)
+        print(f"[MLOps] Targeted fetch — labels: {label_filter}")
+    else:
+        cur.execute(f"""
+            SELECT id, text_snapshot AS text,
+                   {corrected_col} AS label,
+                   {original_col}  AS original_label
+            FROM human_corrections
+            WHERE used_in_training = FALSE
+              AND {corrected_col} IS NOT NULL
+              AND text_snapshot IS NOT NULL
+              AND LENGTH(text_snapshot) > 20
+            ORDER BY corrected_at ASC
+        """)
 
     rows = cur.fetchall()
     cur.close()
     conn.close()
 
     df = pd.DataFrame(rows)
-    print(f"[MLOps] {len(df)} corrections trouvées (task={task})")
+    print(f"[MLOps] {len(df)} corrections trouvées (task={task}, filter={label_filter})")
     return df
 
 
@@ -484,7 +504,8 @@ def track_and_register(metrics: dict, task: str, run_id: str,
 # 6. PIPELINE PRINCIPAL
 # ══════════════════════════════════════════════════════════════════════
 
-def run_continuous_learning(task: str, min_samples: int, epochs: int) -> dict:
+def run_continuous_learning(task: str, min_samples: int, epochs: int,
+                            label_filter: list[str] | None = None) -> dict:
     """
     Orchestration complète du pipeline MLOps.
 
@@ -505,8 +526,11 @@ def run_continuous_learning(task: str, min_samples: int, epochs: int) -> dict:
     print(f"[MLOps] MLflow : {MLFLOW_TRACKING_URI}")
     print(f"{'='*60}\n")
 
+    if label_filter:
+        print(f"[MLOps] Targeted mode — label_filter: {label_filter}")
+
     # ── 1. Vérifier les corrections ──
-    corrections_df = fetch_corrections(task)
+    corrections_df = fetch_corrections(task, label_filter=label_filter)
     if len(corrections_df) < min_samples:
         msg = f"Pas assez de corrections ({len(corrections_df)}/{min_samples} requis)"
         print(f"[MLOps] SKIP — {msg}")
@@ -597,13 +621,16 @@ if __name__ == "__main__":
     parser.add_argument("--min-samples", type=int, default=MIN_SAMPLES_DEFAULT,
                         help=f"Nombre minimum de corrections (défaut: {MIN_SAMPLES_DEFAULT})")
     parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--label-filter", type=str, default=None,
+                        help="Comma-separated labels for targeted fine-tuning (e.g. 'frustration,urgency')")
     args = parser.parse_args()
 
+    label_filter = [l.strip() for l in args.label_filter.split(",")] if args.label_filter else None
     tasks = ["sentiment", "emotion"] if args.task == "all" else [args.task]
     results = []
 
     for t in tasks:
-        result = run_continuous_learning(t, args.min_samples, args.epochs)
+        result = run_continuous_learning(t, args.min_samples, args.epochs, label_filter=label_filter)
         results.append(result)
         status = result.get("status")
         if status == "success":

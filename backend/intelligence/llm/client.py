@@ -56,11 +56,12 @@ async def complete(
     db=None,
     temperature: float = 0.3,
     max_tokens: int = 600,
+    provider: str | None = None,
 ) -> str:
-    provider = settings.llm_provider.lower()
-    if provider == "azure":
+    p = (provider or settings.llm_provider).lower()
+    if p == "azure":
         return await _complete_azure_mcp(system, user, use_tools, temperature, max_tokens)
-    if provider == "openai":
+    if p in ("openai", "gpt"):
         return await _complete_openai(system, user, temperature, max_tokens)
     return await _complete_ollama(system, user, temperature, max_tokens)
 
@@ -346,21 +347,34 @@ async def _complete_ollama(
     max_tokens: int,
 ) -> str:
     prompt = f"{system}\n\n{user}"
+    # Ollama sur CPU est lent — cap à 400 tokens et timeout généreux
+    ollama_tokens = min(max_tokens, 400)
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(
                 f"{settings.ollama_base_url.rstrip('/v1')}/api/generate",
                 json={
                     "model":   settings.ollama_model,
                     "prompt":  prompt,
                     "stream":  False,
-                    "options": {"temperature": temperature, "num_predict": max_tokens},
+                    "options": {
+                        "temperature": temperature,
+                        "num_predict": ollama_tokens,
+                        "num_gpu":     0,   # CPU-only — prevents GPU VRAM crash on laptops
+                    },
                 },
             )
             resp.raise_for_status()
             return resp.json().get("response", "").strip()
     except httpx.ConnectError:
         return "Ollama n'est pas démarré. Lance `ollama serve` dans un terminal puis réessaie."
+    except httpx.TimeoutException:
+        logger.error("[LLM/Ollama] Timeout — modèle trop lent sur CPU")
+        return "Ollama a mis trop de temps à répondre. Réessaie dans quelques secondes."
+    except httpx.HTTPStatusError as e:
+        body = e.response.text[:500]
+        logger.error("[LLM/Ollama] HTTP %s — %s", e.response.status_code, body)
+        return f"Erreur Ollama ({e.response.status_code}) : {body}"
     except Exception as e:
-        logger.error("[LLM/Ollama] Erreur : %s", e)
+        logger.error("[LLM/Ollama] Erreur inattendue : %s", e)
         return f"Erreur Ollama : {e}"

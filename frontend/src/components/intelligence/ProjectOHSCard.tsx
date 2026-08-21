@@ -103,8 +103,16 @@ export default function ProjectOHSCard({ projectId }: { projectId: string }) {
 
   if (error || !data) return null;
 
+  const hasData = data.linked_msgs > 0 || data.signals_tasks > 0;
+
   return (
-    <div style={{ ...card, borderColor: `${data.color}22`, background: `linear-gradient(135deg, ${data.color}06 0%, transparent 60%), #fff` }}>
+    <div style={{
+      ...card,
+      borderColor: hasData ? `${data.color}22` : "rgba(62,92,118,0.09)",
+      background: hasData
+        ? `linear-gradient(135deg, ${data.color}06 0%, transparent 60%), #fff`
+        : "#fff",
+    }}>
       {/* Header */}
       <div style={{ marginBottom: "1rem" }}>
         <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#748cab", marginBottom: 2 }}>
@@ -114,37 +122,54 @@ export default function ProjectOHSCard({ projectId }: { projectId: string }) {
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#0d1321" }}>
             Santé organisationnelle
           </h3>
-          <span style={{
-            background: `${data.color}18`, color: data.color,
-            fontSize: 11, fontWeight: 700,
-            padding: "3px 10px", borderRadius: 20,
-            border: `1px solid ${data.color}33`,
-          }}>
-            {data.label}
-          </span>
+          {hasData && (
+            <span style={{
+              background: `${data.color}18`, color: data.color,
+              fontSize: 11, fontWeight: 700,
+              padding: "3px 10px", borderRadius: 20,
+              border: `1px solid ${data.color}33`,
+            }}>
+              {data.label}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Body: gauge + bars */}
-      <div style={{ display: "flex", gap: "1.5rem", alignItems: "center" }}>
-        {/* Gauge */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          <MiniGauge score={data.score} color={data.color} />
-          <div style={{ fontSize: 10, color: "#748cab", textAlign: "center", lineHeight: 1.4 }}>
-            {data.linked_msgs} msg · {data.signals_tasks} tâches
+      {/* Empty state */}
+      {!hasData ? (
+        <div style={{
+          display: "flex", flexDirection: "column", alignItems: "center",
+          justifyContent: "center", padding: "1.25rem 1rem", gap: 8, textAlign: "center",
+        }}>
+          <span style={{ fontSize: 28 }}>📭</span>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#3e5c76" }}>
+            Aucune donnée pour l'instant
+          </div>
+          <div style={{ fontSize: 11, color: "#748cab", lineHeight: 1.6, maxWidth: 210 }}>
+            Lie une liste ClickUp ou connecte une source pour calculer la santé réelle de ce projet.
           </div>
         </div>
+      ) : (
+        <>
+          {/* Body: gauge + bars */}
+          <div style={{ display: "flex", gap: "1.5rem", alignItems: "center" }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, flexShrink: 0 }}>
+              <MiniGauge score={data.score} color={data.color} />
+              <div style={{ fontSize: 10, color: "#748cab", textAlign: "center", lineHeight: 1.4 }}>
+                {data.linked_msgs} msg · {data.signals_tasks} tâches
+              </div>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {data.breakdown.map(d => <DimBar key={d.key} dim={d} />)}
+            </div>
+          </div>
 
-        {/* Dimension bars */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {data.breakdown.map(d => <DimBar key={d.key} dim={d} />)}
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid rgba(62,92,118,0.07)", fontSize: 10, color: "#a0b4c4" }}>
-        Calculé à partir des signaux croisés · {new Date(data.computed_at).toLocaleString("fr-FR")}
-      </div>
+          {/* Footer */}
+          <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid rgba(62,92,118,0.07)", fontSize: 10, color: "#a0b4c4" }}>
+            Calculé à partir des signaux croisés · {new Date(data.computed_at).toLocaleString("fr-FR")}
+          </div>
+        </>
+      )}
     </div>
   );
 }

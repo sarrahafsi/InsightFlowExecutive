@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 # (user_id, source) → fitted IsolationForest
 _model_cache: Dict[Tuple[str, str], object] = {}
 
-SOURCES = ["gmail", "jira", "slack"]
-MIN_DAYS_WARMUP = 7          # need at least this many days before detecting
+SOURCES = ["gmail", "jira", "slack", "teams", "outlook"]
+MIN_DAYS_WARMUP = 3          # need at least this many days before detecting
 CONTAMINATION = 0.05         # 5% anomaly rate — moins de faux positifs
 MIN_DEVIATION_PCT = 50       # ignorer si déviation < 50% sur la feature principale
 SEVERITY_THRESHOLDS = {
@@ -43,9 +43,9 @@ def _set_model(user_id: str, source: str, model):
     _model_cache[(user_id, source)] = model
 
 
-def run_detection(db, user_id: str = "default", window_days: int = 14) -> list[dict]:
+def run_detection(db, org_id: str = "default", window_days: int = 14) -> list[dict]:
     """
-    Run anomaly detection for all sources for the given user.
+    Run anomaly detection for all sources for the given org.
     Returns list of anomaly dicts (not yet persisted — caller persists).
     """
     try:
@@ -60,7 +60,7 @@ def run_detection(db, user_id: str = "default", window_days: int = 14) -> list[d
 
     for source in SOURCES:
         try:
-            X, feat_names, dates = extract_daily_features(db, source, window_days=window_days)
+            X, feat_names, dates = extract_daily_features(db, source, window_days=window_days, org_id=org_id)
 
             if len(X) < MIN_DAYS_WARMUP:
                 logger.info(
@@ -80,15 +80,21 @@ def run_detection(db, user_id: str = "default", window_days: int = 14) -> list[d
                 random_state=42,
             )
             model.fit(X_train)
-            _set_model(user_id, source, model)
+            _set_model(org_id, source, model)
 
             # Score last day (-1 = most anomalous, 0 = borderline, +1 = normal)
             score = float(model.score_samples(X_last)[0])
             baseline = X_train.mean(axis=0)
 
+            logger.info(
+                "[Anomaly/%s] score=%.4f | train_days=%d | last_day=%s | features=%s",
+                source, score, len(X_train), day.strftime("%Y-%m-%d"),
+                dict(zip(feat_names, [round(float(v), 2) for v in X_last[0]]))
+            )
+
             severity = _severity(score)
             if severity is None:
-                logger.debug("[Anomaly/%s] Score %.3f → normal", source, score)
+                logger.info("[Anomaly/%s] Score %.4f → normal (seuil high=%.2f, medium=%.2f)", source, score, SEVERITY_THRESHOLDS["high"], SEVERITY_THRESHOLDS["medium"])
                 continue
 
             # Find which feature deviates most
@@ -100,8 +106,18 @@ def run_detection(db, user_id: str = "default", window_days: int = 14) -> list[d
                 if top_base > 0.01:
                     top_pct = abs((top_curr - top_base) / top_base * 100)
                     if top_pct < MIN_DEVIATION_PCT:
-                        logger.debug("[Anomaly/%s] Déviation %.0f%% < seuil %d%% — ignoré", source, top_pct, MIN_DEVIATION_PCT)
+                        logger.info("[Anomaly/%s] Déviation %.0f%% < seuil %d%% — ignoré (top feat: %s)", source, top_pct, MIN_DEVIATION_PCT, deviations[0][0])
                         continue
+
+            # Skip false positives : la feature principale est une métrique "mauvaise"
+            # mais elle a BAISSÉ (burnout↓, nuit↓ = bonne nouvelle, pas une alerte CEO)
+            CONCERNING_FEATURES = {"nb_night_msgs", "avg_burnout", "nb_blocked"}
+            if deviations:
+                top_feat, top_curr, top_base = deviations[0]
+                if top_feat in CONCERNING_FEATURES and top_curr < top_base:
+                    logger.info("[Anomaly/%s] Faux positif ignoré — %s curr=%.2f < base=%.2f (bonne nouvelle)", source, top_feat, top_curr, top_base)
+                    continue
+
             description = _build_description(source, day, deviations, score)
 
             # Store values for the TOP anomalous feature (not always index 0)
@@ -112,7 +128,7 @@ def run_detection(db, user_id: str = "default", window_days: int = 14) -> list[d
                 top_idx = 0
 
             anomalies.append({
-                "user_id":        user_id,
+                "org_id":         org_id,
                 "source":         source,
                 "metric":         deviations[0][0] if deviations else "unknown",
                 "current_value":  round(float(X_last[0][top_idx]), 2),
@@ -174,9 +190,11 @@ _LABEL_FR = {
 }
 
 _LABEL_SOURCE = {
-    "gmail": "boîte mail",
-    "jira":  "Jira",
-    "slack": "Slack",
+    "gmail":   "boîte mail",
+    "jira":    "Jira",
+    "slack":   "Slack",
+    "teams":   "Microsoft Teams",
+    "outlook": "Outlook",
 }
 
 
@@ -194,8 +212,9 @@ def _build_description(
     label  = _LABEL_FR.get(feat, feat)
     src_fr = _LABEL_SOURCE.get(source, source)
 
-    if base > 0.01:
-        pct  = round((curr - base) / base * 100)
+    if base > 0.5:
+        raw_pct = round((curr - base) / base * 100)
+        pct  = max(-999, min(999, raw_pct))
         sign = "+" if pct >= 0 else ""
         if abs(pct) >= 50:
             headline = (
@@ -216,8 +235,9 @@ def _build_description(
     # Add secondary signals if meaningful
     extras = []
     for f2, c2, b2 in deviations[1:]:
-        if b2 > 0.01 and abs((c2 - b2) / b2) >= 0.3:
-            pct2 = round((c2 - b2) / b2 * 100)
+        if b2 > 0.5 and abs((c2 - b2) / b2) >= 0.3:
+            raw_pct2 = round((c2 - b2) / b2 * 100)
+            pct2  = max(-999, min(999, raw_pct2))
             sign2 = "+" if pct2 >= 0 else ""
             extras.append(f"{_LABEL_FR.get(f2, f2)} : {_fmt(c2)} ({sign2}{pct2}%)")
 

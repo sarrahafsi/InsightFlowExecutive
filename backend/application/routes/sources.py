@@ -12,7 +12,8 @@ from integrations.connectors.schemas import SourceType
 from core.database import SessionLocal, get_db
 from core.store import ItemStore
 from application.deps import get_store
-from core.models import SourceConfig, MessageRaw
+from core.models import ConnectorCatalog, SourceConfig, MessageRaw, User
+from core.security import get_current_user
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
@@ -118,15 +119,17 @@ class JiraConnectRequest(BaseModel):
     project_keys: str = "SCRUM"
 
 
-def _load_jira_db_config() -> dict | None:
-    """Load Jira credentials from source_configs table."""
+def _load_jira_db_config(org_id: str | None = None) -> dict | None:
+    """Load Jira credentials from source_configs table, scoped to org."""
     try:
         db = SessionLocal()
         try:
-            row = db.query(SourceConfig).filter(SourceConfig.source == "jira").first()
+            q = db.query(SourceConfig).filter(SourceConfig.source == "jira")
+            if org_id is not None:
+                q = q.filter(SourceConfig.org_id == org_id)
+            row = q.first()
             if row:
-                cfg = row.config if isinstance(row.config, dict) else json.loads(row.config)
-                return cfg
+                return row.config if isinstance(row.config, dict) else json.loads(row.config)
         finally:
             db.close()
     except Exception:
@@ -134,33 +137,35 @@ def _load_jira_db_config() -> dict | None:
     return None
 
 
-def _is_jira_connected() -> bool:
-    if _load_jira_db_config():
+def _is_jira_connected(org_id: str | None = None) -> bool:
+    if _load_jira_db_config(org_id):
         return True
+    if org_id is not None:
+        return False
     from core.config import settings
     return bool(settings.jira_base_url and settings.jira_api_token)
 
 
 @router.get("/jira/status")
-async def jira_status():
-    """Retourne si Jira est connecté (DB ou .env)."""
-    cfg = _load_jira_db_config()
+async def jira_status(current_user: User = Depends(get_current_user)):
+    """Retourne si Jira est connecté — scoped à l'org."""
+    cfg = _load_jira_db_config(current_user.org_id)
     if cfg:
         return {"connected": True, "source": "db",
                 "base_url": cfg.get("base_url"), "email": cfg.get("email")}
-    from core.config import settings
-    if settings.jira_base_url and settings.jira_api_token:
-        return {"connected": True, "source": "env",
-                "base_url": settings.jira_base_url, "email": settings.jira_email}
     return {"connected": False}
 
 
 @router.post("/jira/connect")
-async def connect_jira(body: JiraConnectRequest, background_tasks: BackgroundTasks):
+async def connect_jira(
+    body: JiraConnectRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+):
     """
     Connecte Jira avec les credentials fournis par le CEO.
     1. Teste l'authentification
-    2. Sauvegarde en DB
+    2. Sauvegarde en DB (lié à l'org)
     3. Lance un sync en arrière-plan
     """
     base_url = body.base_url.rstrip("/")
@@ -174,7 +179,7 @@ async def connect_jira(body: JiraConnectRequest, background_tasks: BackgroundTas
                 headers={"Accept": "application/json"},
             )
             resp.raise_for_status()
-            user = resp.json()
+            jira_user = resp.json()
     except Exception as e:
         raise HTTPException(status_code=400,
                             detail=f"Impossible de se connecter à Jira : {e}")
@@ -188,24 +193,26 @@ async def connect_jira(body: JiraConnectRequest, background_tasks: BackgroundTas
     }
     db = SessionLocal()
     try:
-        row = db.query(SourceConfig).filter(SourceConfig.source == "jira").first()
+        row = db.query(SourceConfig).filter(
+            SourceConfig.source == "jira",
+            SourceConfig.org_id == current_user.org_id,
+        ).first()
         if row:
             row.config = config
             row.connected_at = datetime.utcnow()
         else:
-            db.add(SourceConfig(source="jira", config=config))
+            db.add(SourceConfig(org_id=current_user.org_id, source="jira", config=config))
         db.commit()
     finally:
         db.close()
 
-    # 3. Reset auth + sync en arrière-plan
-    background_tasks.add_task(_background_jira_sync)
+    background_tasks.add_task(_background_jira_sync, current_user.org_id)
 
-    return {"connected": True, "user": user.get("displayName"),
+    return {"connected": True, "user": jira_user.get("displayName"),
             "message": "Jira connecté — sync en cours en arrière-plan"}
 
 
-async def _background_jira_sync():
+async def _background_jira_sync(org_id: str | None = None):
     """Resync Jira après une nouvelle connexion."""
     import logging
     logger = logging.getLogger(__name__)
@@ -228,10 +235,13 @@ async def _background_jira_sync():
         if fetched:
             db = SessionLocal()
             try:
-                # Supprimer anciens items Jira et réinsérer
-                db.query(MessageRaw).filter(MessageRaw.source == "jira").delete(synchronize_session=False)
+                # Supprimer anciens items Jira de cette org et réinsérer
+                q = db.query(MessageRaw).filter(MessageRaw.source == "jira")
+                if org_id:
+                    q = q.filter(MessageRaw.org_id == org_id)
+                q.delete(synchronize_session=False)
                 db.commit()
-                load_items(fetched, db, run_nlp=False)
+                load_items(fetched, db, run_nlp=False, org_id=org_id)
                 rows = load_from_db(db, since_days=365)
                 refreshed = []
                 for r in rows:
@@ -245,13 +255,36 @@ async def _background_jira_sync():
                 logger.info("[Jira] Sync post-connexion : %d items chargés", len(refreshed))
             finally:
                 db.close()
+
+        # NLP enrichissement après insertion
+        if fetched:
+            import asyncio
+            from data.etl.loader import reprocess_unenriched
+            db2 = SessionLocal()
+            try:
+                print(f"[jira-sync] Lancement NLP enrichissement…")
+                n_nlp = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: reprocess_unenriched(db2, limit=len(fetched) + 20)
+                )
+                print(f"[jira-sync] NLP terminé : {n_nlp} items enrichis")
+            except Exception as nlp_err:
+                print(f"[jira-sync] NLP ignoré : {nlp_err}")
+            finally:
+                db2.close()
+
     except Exception as e:
         logging.getLogger(__name__).warning("[Jira] Background sync failed: %s", e)
 
 
 @router.get("/status")
-async def sources_status(store: Annotated[ItemStore, Depends(get_store)]):
-    """Returns each source with connection status and item count."""
+async def sources_status(
+    current_user: User = Depends(get_current_user),
+    store=Depends(get_store),
+):
+    """Returns each source with connection status and item count.
+    Availability and coming_soon flags come from the ConnectorCatalog (managed by superadmin).
+    connected = True if credentials exist in source_configs OR items are already synced.
+    """
     SOURCE_TYPES = {
         "gmail":   SourceType.GMAIL,
         "slack":   SourceType.SLACK,
@@ -260,39 +293,87 @@ async def sources_status(store: Annotated[ItemStore, Depends(get_store)]):
         "teams":   SourceType.TEAMS,
         "outlook": SourceType.OUTLOOK,
     }
-    # Teams connector config — mock mode means always connected
+
+    # Load catalog flags from DB
+    catalog: dict[str, ConnectorCatalog] = {}
     try:
-        from application.deps import connector_manager
-        teams_connector = connector_manager._connectors.get(SourceType.TEAMS)
-        teams_mock_mode = teams_connector.config.get("use_mock", True) if teams_connector else True
+        db = SessionLocal()
+        try:
+            catalog = {c.key: c for c in db.query(ConnectorCatalog).all()}
+        finally:
+            db.close()
     except Exception:
-        teams_mock_mode = True
+        pass
+
+    # Load configured sources — isolated so ConnectorCatalog failure can't break this
+    configured_sources: set[str] = set()
+    try:
+        db = SessionLocal()
+        try:
+            rows = db.query(SourceConfig.source).filter(
+                SourceConfig.org_id == current_user.org_id
+            ).all()
+            configured_sources = {r.source for r in rows}
+        finally:
+            db.close()
+    except Exception:
+        pass
 
     result = []
     for key, data in REGISTRY.items():
+        cat_entry = catalog.get(key)
+        available   = (cat_entry.enabled and not cat_entry.coming_soon) if cat_entry else data["available"]
+        coming_soon = cat_entry.coming_soon if cat_entry else data.get("coming_soon", False)
+
         source_type = SOURCE_TYPES.get(key)
-        count = len(store.all(source=source_type, limit=10_000)) if source_type else 0
+        count     = store.count_source(source_type) if (source_type and hasattr(store, "count_source")) else (
+                    len(store.all(source=source_type, limit=10_000)) if source_type else 0
+                )
         last_sync = store.last_sync(source_type).isoformat() if (source_type and store.last_sync(source_type)) else None
 
-        # Teams: always connected (mock data is always available)
-        if key == "teams":
-            connected = True
+        # For Gmail: check actual OAuth token validity, not just DB items
+        if key == "gmail":
+            from application.routes.auth import get_gmail_credentials
+            creds = get_gmail_credentials(current_user.org_id)
+            connected    = creds is not None and creds.valid
+            sync_pending = False
         else:
-            connected = count > 0
+            connected    = (key in configured_sources) or (count > 0)
+            sync_pending = (key in configured_sources) and (count == 0)
 
         result.append({
-            "key":        key,
-            "name":       data["name"],
-            "icon":       data["icon"],
-            "color":      data["color"],
-            "category":   data["category"],
-            "available":  data["available"],
-            "coming_soon": data.get("coming_soon", False),
-            "connected":  connected,
-            "items_count": count,
-            "last_sync":  last_sync,
+            "key":          key,
+            "name":         cat_entry.name if cat_entry else data["name"],
+            "icon":         data["icon"],
+            "color":        data["color"],
+            "category":     cat_entry.category if cat_entry else data["category"],
+            "available":    available,
+            "coming_soon":  coming_soon,
+            "connected":    connected,
+            "sync_pending": sync_pending,
+            "items_count":  count,
+            "last_sync":    last_sync,
         })
     return result
+
+
+# ── Gmail sync status ─────────────────────────────────────────────────────────
+
+@router.get("/gmail/status")
+async def gmail_sync_status(
+    current_user: User = Depends(get_current_user),
+    store=Depends(get_store),
+):
+    """Returns Gmail connection + sync status for this org."""
+    from application.routes.auth import get_gmail_credentials
+    creds = get_gmail_credentials(current_user.org_id)
+    connected = creds is not None and creds.valid
+    count = store.count_source(SourceType.GMAIL) if hasattr(store, "count_source") else 0
+    return {
+        "connected":    connected,
+        "sync_pending": connected and count == 0,
+        "items_count":  count,
+    }
 
 
 # ── ClickUp Connection ────────────────────────────────────────────────────────
@@ -302,11 +383,14 @@ class ClickUpConnectRequest(BaseModel):
     team_id:   str = ""    # optional: workspace/team ID
 
 
-def _load_clickup_db_config() -> dict | None:
+def _load_clickup_db_config(org_id: str | None = None) -> dict | None:
     try:
         db = SessionLocal()
         try:
-            row = db.query(SourceConfig).filter(SourceConfig.source == "clickup").first()
+            q = db.query(SourceConfig).filter(SourceConfig.source == "clickup")
+            if org_id is not None:
+                q = q.filter(SourceConfig.org_id == org_id)
+            row = q.first()
             if row:
                 return row.config if isinstance(row.config, dict) else json.loads(row.config)
         finally:
@@ -317,16 +401,20 @@ def _load_clickup_db_config() -> dict | None:
 
 
 @router.get("/clickup/status")
-async def clickup_status():
-    cfg = _load_clickup_db_config()
+async def clickup_status(current_user: User = Depends(get_current_user)):
+    cfg = _load_clickup_db_config(current_user.org_id)
     if cfg and cfg.get("api_token"):
         return {"connected": True, "team_id": cfg.get("team_id", "")}
     return {"connected": False}
 
 
 @router.post("/clickup/connect")
-async def connect_clickup(body: ClickUpConnectRequest, background_tasks: BackgroundTasks):
-    """Save ClickUp API token, verify it, then sync in background."""
+async def connect_clickup(
+    body: ClickUpConnectRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+):
+    """Save ClickUp API token (lié à l'org), verify it, then sync in background."""
     import httpx as _httpx
 
     # 1. Verify token
@@ -338,7 +426,7 @@ async def connect_clickup(body: ClickUpConnectRequest, background_tasks: Backgro
             )
             if resp.status_code != 200:
                 raise HTTPException(status_code=400, detail=f"ClickUp token invalide: {resp.text}")
-            user = resp.json().get("user", {})
+            cu_user = resp.json().get("user", {})
     except HTTPException:
         raise
     except Exception as e:
@@ -351,87 +439,121 @@ async def connect_clickup(body: ClickUpConnectRequest, background_tasks: Backgro
 
     db = SessionLocal()
     try:
-        row = db.query(SourceConfig).filter(SourceConfig.source == "clickup").first()
+        row = db.query(SourceConfig).filter(
+            SourceConfig.source == "clickup",
+            SourceConfig.org_id == current_user.org_id,
+        ).first()
         if row:
             row.config = config
             row.connected_at = datetime.utcnow()
         else:
-            db.add(SourceConfig(source="clickup", config=config))
+            db.add(SourceConfig(org_id=current_user.org_id, source="clickup", config=config))
         db.commit()
     finally:
         db.close()
 
-    # 3. Background sync
-    background_tasks.add_task(_background_clickup_sync)
+    background_tasks.add_task(_background_clickup_sync, current_user.org_id)
 
     return {
         "connected": True,
-        "user": user.get("username"),
+        "user": cu_user.get("username"),
         "message": "ClickUp connecté — sync en cours en arrière-plan",
     }
 
 
 @router.delete("/clickup/disconnect", status_code=204)
-async def disconnect_clickup():
+async def disconnect_clickup(current_user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
-        db.query(SourceConfig).filter(SourceConfig.source == "clickup").delete()
+        db.query(SourceConfig).filter(
+            SourceConfig.source == "clickup",
+            SourceConfig.org_id == current_user.org_id,
+        ).delete()
         db.commit()
     finally:
         db.close()
 
 
-async def _background_clickup_sync():
-    import logging as _logging
-    logger = _logging.getLogger(__name__)
+async def _background_clickup_sync(org_id: str | None = None):
+    """Sync ClickUp directement avec les credentials de l'org — bypass connector_manager."""
     try:
-        from application.deps import connector_manager, item_store
-        from integrations.connectors import ConnectorManager
-        from integrations.connectors.schemas import SourceType as ST
-        from data.etl.loader import load_items, load_from_db
-        from main import _build_data_item
+        from integrations.connectors.clickup import ClickUpConnector
+        from data.etl.loader import load_items
 
-        clickup = connector_manager._connectors.get(ST.CLICKUP)
-        if clickup:
-            clickup._authenticated = False
+        # Charger la config depuis source_configs pour cet org
+        cfg: dict = {}
+        db0 = SessionLocal()
+        try:
+            row = db0.query(SourceConfig).filter(
+                SourceConfig.source == "clickup",
+                SourceConfig.org_id == org_id,
+            ).first()
+            if row:
+                cfg = row.config if isinstance(row.config, dict) else {}
+        finally:
+            db0.close()
 
-        since = datetime.utcnow() - timedelta(days=365)
-        results = await connector_manager.sync_all(since=since, sources=[ST.CLICKUP])
-        fetched = ConnectorManager.collect_items(results)
-        item_store.upsert(fetched)
+        if not cfg.get("api_token"):
+            print(f"[clickup-sync] Pas de credentials pour org={org_id}")
+            return
 
-        if fetched:
-            db = SessionLocal()
+        print(f"[clickup-sync] Démarrage pour org={org_id}")
+        connector = ClickUpConnector({**cfg, "org_id": org_id})
+        await connector.authenticate()
+
+        since = datetime.utcnow() - timedelta(days=90)
+        raw_items = await connector.fetch_raw(since)
+        print(f"[clickup-sync] {len(raw_items)} tâches trouvées")
+
+        items = [connector.normalize(r) for r in raw_items]
+
+        # Scoper les IDs par org pour éviter les conflits multi-tenant
+        if org_id:
+            items = [i.model_copy(update={"id": f"{i.id}_{org_id[:8]}"}) for i in items]
+
+        if not items:
+            print(f"[clickup-sync] Aucun item pour org={org_id}")
+            return
+
+        db = SessionLocal()
+        try:
+            n = load_items(items, db, run_nlp=False, org_id=org_id, index_rag=False)
+            print(f"[clickup-sync] {n} nouveaux items insérés pour org={org_id}")
+        finally:
+            db.close()
+
+        # NLP enrichissement immédiat après insertion
+        if items:
+            import asyncio
+            from data.etl.loader import reprocess_unenriched
+            db2 = SessionLocal()
             try:
-                db.query(MessageRaw).filter(MessageRaw.source == "clickup").delete(synchronize_session=False)
-                db.commit()
-                load_items(fetched, db, run_nlp=False)
-                rows = load_from_db(db, since_days=365)
-                refreshed = []
-                for r in rows:
-                    if r.get("source") == "clickup":
-                        try:
-                            refreshed.append(_build_data_item(r))
-                        except Exception:
-                            pass
-                if refreshed:
-                    item_store.upsert(refreshed)
-                logger.info("[ClickUp] Sync post-connexion : %d items chargés", len(refreshed))
+                print(f"[clickup-sync] Lancement NLP enrichissement pour org={org_id}…")
+                enriched = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: reprocess_unenriched(db2, limit=len(items) + 20)
+                )
+                print(f"[clickup-sync] NLP terminé : {enriched} items enrichis")
+            except Exception as nlp_err:
+                print(f"[clickup-sync] NLP ignoré : {nlp_err}")
             finally:
-                db.close()
+                db2.close()
+
     except Exception as e:
-        logging.getLogger(__name__).warning("[ClickUp] Background sync failed: %s", e)
+        print(f"[clickup-sync] ERREUR (org={org_id}): {e}")
 
 
 # ── Teams ─────────────────────────────────────────────────────────────────────
 
 @router.get("/teams/status")
-async def teams_status():
+async def teams_status(current_user: User = Depends(get_current_user)):
     """Check whether Teams is authenticated (real or mock mode)."""
     try:
         db = SessionLocal()
         try:
-            row = db.query(SourceConfig).filter(SourceConfig.source == "teams").first()
+            row = db.query(SourceConfig).filter(
+                SourceConfig.source == "teams",
+                SourceConfig.org_id == current_user.org_id,
+            ).first()
             if row:
                 cfg = row.config if isinstance(row.config, dict) else json.loads(row.config)
                 return {
@@ -463,11 +585,14 @@ async def teams_sync(background_tasks: BackgroundTasks):
 # ── Outlook ───────────────────────────────────────────────────────────────────
 
 @router.get("/outlook/status")
-async def outlook_status():
+async def outlook_status(current_user: User = Depends(get_current_user)):
     try:
         db = SessionLocal()
         try:
-            row = db.query(SourceConfig).filter(SourceConfig.source == "outlook").first()
+            row = db.query(SourceConfig).filter(
+                SourceConfig.source == "outlook",
+                SourceConfig.org_id == current_user.org_id,
+            ).first()
             if row:
                 cfg = row.config if isinstance(row.config, dict) else json.loads(row.config)
                 return {"connected": True, "refreshed_at": cfg.get("refreshed_at"), "connect_url": "/auth/outlook/connect"}
@@ -486,10 +611,13 @@ async def outlook_sync(background_tasks: BackgroundTasks):
 
 
 @router.delete("/outlook/disconnect", status_code=204)
-async def outlook_disconnect_source():
+async def outlook_disconnect_source(current_user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
-        db.query(SourceConfig).filter(SourceConfig.source == "outlook").delete()
+        db.query(SourceConfig).filter(
+            SourceConfig.source == "outlook",
+            SourceConfig.org_id == current_user.org_id,
+        ).delete()
         db.commit()
     finally:
         db.close()
@@ -503,11 +631,14 @@ async def outlook_disconnect_source():
 
 
 @router.delete("/teams/disconnect", status_code=204)
-async def teams_disconnect_source():
+async def teams_disconnect_source(current_user: User = Depends(get_current_user)):
     """Remove Teams token from DB and switch to mock mode."""
     db = SessionLocal()
     try:
-        db.query(SourceConfig).filter(SourceConfig.source == "teams").delete()
+        db.query(SourceConfig).filter(
+            SourceConfig.source == "teams",
+            SourceConfig.org_id == current_user.org_id,
+        ).delete()
         db.commit()
     finally:
         db.close()

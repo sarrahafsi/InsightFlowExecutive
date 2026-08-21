@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 
-const API_BASE = "http://localhost:8000";
+import API from "@/lib/api";
 
 const SOURCE_META: Record<string, { label: string; color: string; icon: string }> = {
   outlook_calendar: { label: "Outlook",  color: "#0078D4", icon: "📨" },
@@ -169,11 +169,10 @@ export default function CalendarPage() {
   useEffect(() => {
     const sunday = new Date(monday); sunday.setDate(sunday.getDate() + 6);
     setLoading(true); setError(null);
-    fetch(`${API_BASE}/api/calendar/events?start=${formatDate(monday)}&end=${formatDate(sunday)}`)
-      .then(r => r.json())
-      .then(data => {
-        setEvents(data.events ?? []);
-        setActiveFilters(new Set<string>((data.events ?? []).map((e: CalendarEvent) => e.source)));
+    API.get(`/api/calendar/events?start=${formatDate(monday)}&end=${formatDate(sunday)}`)
+      .then(r => {
+        setEvents(r.data.events ?? []);
+        setActiveFilters(new Set<string>((r.data.events ?? []).map((e: CalendarEvent) => e.source)));
       })
       .catch(e => setError(String(e)))
       .finally(() => setLoading(false));

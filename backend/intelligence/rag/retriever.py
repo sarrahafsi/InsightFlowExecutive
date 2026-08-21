@@ -31,7 +31,12 @@ class RetrievedDoc:
     url:             str
 
 
-def retrieve(query: str, top_k: int = 5, source_filter: Optional[str] = None) -> list[RetrievedDoc]:
+def retrieve(
+    query: str,
+    top_k: int = 5,
+    source_filter: Optional[str] = None,
+    since_date: Optional[str] = None,
+) -> list[RetrievedDoc]:
     """
     Cherche les top_k messages les plus pertinents pour `query`.
 
@@ -39,6 +44,7 @@ def retrieve(query: str, top_k: int = 5, source_filter: Optional[str] = None) ->
         query:         Question en langage naturel du CEO
         top_k:         Nombre de résultats à retourner
         source_filter: Filtrer par source (gmail / slack / jira) — optionnel
+        since_date:    ISO date string pour filtrer les messages récents (ex: "2026-05-23")
 
     Returns:
         Liste de RetrievedDoc triés par pertinence (meilleur en premier)
@@ -58,8 +64,17 @@ def retrieve(query: str, top_k: int = 5, source_filter: Optional[str] = None) ->
             "include":     ["documents", "metadatas", "distances"],
         }
 
+        # Build where filter (ChromaDB $and for multiple conditions)
+        where_clauses = []
         if source_filter:
-            kwargs["where"] = {"source": source_filter}
+            where_clauses.append({"source": {"$eq": source_filter}})
+        if since_date:
+            where_clauses.append({"timestamp": {"$gte": since_date}})
+
+        if len(where_clauses) == 1:
+            kwargs["where"] = where_clauses[0]
+        elif len(where_clauses) > 1:
+            kwargs["where"] = {"$and": where_clauses}
 
         results = col.query(**kwargs)
 

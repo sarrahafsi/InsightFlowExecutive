@@ -7,28 +7,22 @@ POST /api/emails/send             → envoie un email via Gmail API
 from __future__ import annotations
 
 import logging
+import re
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from application.deps import get_store
 from core.config import settings
+from core.models import User
+from core.security import get_current_user
 from core.store import ItemStore
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/emails", tags=["emails"])
-
-
-# ── Schemas ───────────────────────────────────────────────────
-
-class SendRequest(BaseModel):
-    to:        str
-    subject:   str
-    body:      str
-    thread_id: str | None = None
 
 
 # ── Draft generation ──────────────────────────────────────────
@@ -37,6 +31,7 @@ class SendRequest(BaseModel):
 async def generate_draft(
     item_id: str,
     store: Annotated[ItemStore, Depends(get_store)],
+    current_user: User = Depends(get_current_user),
 ):
     """
     Génère un brouillon de réponse pour un email en utilisant Ollama.
@@ -73,18 +68,23 @@ Analyse      : {reason}
 - La réponse doit être courte (3-6 phrases maximum).
 - Ne mentionne pas l'analyse IA dans ta réponse.
 - Commence directement par la réponse, sans formule d'introduction comme "Voici un brouillon".
-- Termine par une formule de politesse appropriée.
+- Termine OBLIGATOIREMENT par exactement cette signature (ne la modifie pas) :
+  Cordialement,
+  {current_user.full_name or current_user.username}
 
 RÉPONSE :"""
 
+    ceo_name = current_user.full_name or current_user.username
+
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
                 f"{settings.ollama_base_url.rstrip('/v1')}/api/generate",
                 json={
                     "model":  settings.ollama_model,
                     "prompt": prompt,
                     "stream": False,
+                    "options": {"num_gpu": 0},
                 },
             )
             resp.raise_for_status()
@@ -92,6 +92,9 @@ RÉPONSE :"""
     except Exception as e:
         logger.warning("[Emails/Draft] Ollama failed: %s", e)
         raise HTTPException(status_code=503, detail=f"LLM indisponible : {e}")
+
+    # Replace any literal "CEO" the LLM may have written instead of the real name
+    draft = re.sub(r'\bCEO\b', ceo_name, draft)
 
     return {
         "item_id":   item_id,
@@ -104,11 +107,29 @@ RÉPONSE :"""
 
 # ── Send email ────────────────────────────────────────────────
 
+ALLOWED_MIME_TYPES = {
+    "image/jpeg", "image/png", "image/gif", "image/webp",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/plain", "text/csv",
+}
+MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
+
+
 @router.post("/send")
-async def send_email(body: SendRequest):
+async def send_email(
+    to:        str            = Form(...),
+    subject:   str            = Form(...),
+    body:      str            = Form(...),
+    thread_id: str | None     = Form(None),
+    files:     list[UploadFile] = File(default=[]),
+):
     """
-    Envoie un email via Gmail API.
-    Nécessite que Gmail soit authentifié (OAuth2).
+    Envoie un email via Gmail API avec pièces jointes optionnelles.
+    Accepte multipart/form-data.
     """
     try:
         from application.routes.auth import get_gmail_credentials
@@ -122,19 +143,29 @@ async def send_email(body: SendRequest):
                 detail="Gmail non authentifié. Reconnectez-vous via /auth/gmail."
             )
 
+        attachments: list[tuple[str, bytes, str]] = []
+        for f in files:
+            if f.content_type not in ALLOWED_MIME_TYPES:
+                raise HTTPException(status_code=400, detail=f"Type de fichier non autorisé : {f.content_type}")
+            data = await f.read()
+            if len(data) > MAX_ATTACHMENT_SIZE:
+                raise HTTPException(status_code=400, detail=f"Fichier trop volumineux (max 10 Mo) : {f.filename}")
+            attachments.append((f.filename or "attachment", data, f.content_type or "application/octet-stream"))
+
         connector = GmailConnector(config={})
         connector._service = build("gmail", "v1", credentials=creds)
         connector._authenticated = True
 
         message_id = connector.send_email(
-            to=body.to,
-            subject=body.subject,
-            body=body.body,
-            thread_id=body.thread_id,
+            to=to,
+            subject=subject,
+            body=body,
+            thread_id=thread_id,
+            attachments=attachments,
         )
 
-        logger.info("[Emails/Send] Email envoyé à %s (message_id=%s)", body.to, message_id)
-        return {"sent": True, "message_id": message_id, "to": body.to}
+        logger.info("[Emails/Send] Email envoyé à %s (message_id=%s, attachments=%d)", to, message_id, len(attachments))
+        return {"sent": True, "message_id": message_id, "to": to}
 
     except HTTPException:
         raise

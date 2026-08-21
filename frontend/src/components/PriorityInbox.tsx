@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import API from "@/lib/api";
 import MessageDetailModal from "./MessageDetailModal";
 import { useI18n } from "@/lib/i18n";
+import { useWS } from "@/lib/WebSocketContext";
 
 const LABEL_COLORS: Record<string, string> = {
   Blocked: "#ef4444", Urgent: "#f97316", Risk: "#f59e0b",
@@ -13,6 +14,7 @@ const SCORE_COLOR = (s: number) => s >= 20 ? "#ef4444" : s >= 10 ? "#f59e0b" : "
 
 export default function PriorityInbox({ sinceDays = 7, source }: { sinceDays?: number; source?: string }) {
   const { t } = useI18n();
+  const { refreshSignal } = useWS();
   const [items, setItems]     = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail]   = useState<any | null>(null);
@@ -24,7 +26,7 @@ export default function PriorityInbox({ sinceDays = 7, source }: { sinceDays?: n
       .then(r => setItems(r.data.items ?? []))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [sinceDays, source]);
+  }, [sinceDays, source, refreshSignal]);
 
   return (
     <div style={{ background: "#fff", borderRadius: 20, padding: "1.5rem 1.75rem", boxShadow: "0 2px 20px rgba(13,19,33,0.07)", border: "1px solid rgba(62,92,118,0.1)", marginBottom: "1.5rem" }}>

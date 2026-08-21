@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>InsightFlow Executive — KPIs & Graphiques</title>
+<style>
+  :root {
+    --navy: #1d2d44;
+    --blue: #3e5c76;
+    --light: #748cab;
+    --bg: #f0ebd8;
+    --card: #ffffff;
+    --border: rgba(62,92,118,0.12);
+    --red: #ef4444;
+    --orange: #f97316;
+    --yellow: #f59e0b;
+    --green: #22c55e;
+    --purple: #8b5cf6;
+    --gmail: #EA4335;
+    --outlook: #0078D4;
+    --slack: #4A154B;
+    --jira: #0052CC;
+    --clickup: #7B68EE;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--navy);
+    line-height: 1.6;
+  }
+  /* ── Hero ── */
+  .hero {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--blue) 100%);
+    color: #f0ebd8;
+    padding: 3.5rem 3rem 3rem;
+  }
+  .hero-badge {
+    display: inline-block;
+    font-size: 10px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: rgba(240,235,216,.6);
+    border: 1px solid rgba(240,235,216,.2);
+    border-radius: 20px;
+    padding: 4px 14px;
+    margin-bottom: 1rem;
+  }
+  .hero h1 {
+    font-size: 2.4rem;
+    font-weight: 800;
+    letter-spacing: -.02em;
+    margin-bottom: .5rem;
+  }
+  .hero p { font-size: 1rem; color: rgba(240,235,216,.75); max-width: 640px; }
+  /* ── Layout ── */
+  .container { max-width: 1100px; margin: 0 auto; padding: 2.5rem 2rem 4rem; }
+  /* ── TOC ── */
+  .toc {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 1.5rem 1.75rem;
+    margin-bottom: 2.5rem;
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 16px rgba(13,19,33,.06);
+  }
+  .toc-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .15em;
+    color: var(--light);
+    font-weight: 700;
+    margin-bottom: .75rem;
+  }
+  .toc ol { padding-left: 1.25rem; }
+  .toc li { margin-bottom: .35rem; }
+  .toc a { color: var(--blue); text-decoration: none; font-size: 13.5px; font-weight: 500; }
+  .toc a:hover { text-decoration: underline; }
+  .toc ol ol { margin-top: .25rem; }
+  .toc ol ol li { font-weight: 400; color: var(--light); }
+  /* ── Section headers ── */
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 2.5rem 0 1.25rem;
+    padding-bottom: .75rem;
+    border-bottom: 2px solid var(--border);
+  }
+  .section-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--blue); flex-shrink: 0;
+  }
+  .section-header h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--navy);
+    letter-spacing: -.01em;
+  }
+  .section-badge {
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--blue);
+    border-radius: 8px;
+    padding: 2px 10px;
+    letter-spacing: .05em;
+  }
+  .sub-header {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .15em;
+    color: var(--light);
+    font-weight: 700;
+    margin: 1.75rem 0 .75rem;
+    padding-left: 6px;
+    border-left: 3px solid var(--blue);
+  }
+  /* ── KPI grid ── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .kpi-card {
+    background: var(--card);
+    border-radius: 14px;
+    padding: 1.1rem 1.25rem;
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 10px rgba(13,19,33,.05);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: relative;
+    overflow: hidden;
+  }
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 3px;
+    background: var(--accent, var(--blue));
+    opacity: .7;
+  }
+  .kpi-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .kpi-icon {
+    font-size: 18px;
+    width: 34px; height: 34px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 8px;
+    background: rgba(62,92,118,.08);
+    flex-shrink: 0;
+  }
+  .kpi-name {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--light);
+    font-weight: 700;
+  }
+  .kpi-formula {
+    font-family: 'Courier New', monospace;
+    font-size: 11.5px;
+    color: var(--blue);
+    background: rgba(62,92,118,.07);
+    padding: 2px 8px;
+    border-radius: 6px;
+    display: inline-block;
+    margin: 2px 0;
+  }
+  .kpi-desc {
+    font-size: 12.5px;
+    color: #4a5568;
+    line-height: 1.55;
+  }
+  .kpi-thresh {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .thresh {
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 9px;
+    border-radius: 20px;
+  }
+  .thresh-high   { background: #fef2f2; color: var(--red); }
+  .thresh-medium { background: #fffbeb; color: var(--yellow); }
+  .thresh-low    { background: #f0fdf4; color: var(--green); }
+  .thresh-info   { background: rgba(62,92,118,.08); color: var(--blue); }
+  /* ── Chart cards ── */
+  .chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .chart-card {
+    background: var(--card);
+    border-radius: 14px;
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 10px rgba(13,19,33,.05);
+    position: relative;
+    overflow: hidden;
+  }
+  .chart-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent, var(--blue)), transparent);
+  }
+  .chart-name {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    font-weight: 700;
+    color: var(--accent, var(--blue));
+    margin-bottom: 3px;
+  }
+  .chart-sub {
+    font-size: 10.5px;
+    color: var(--light);
+    margin-bottom: 10px;
+  }
+  .chart-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--light);
+    background: rgba(62,92,118,.07);
+    border-radius: 6px;
+    padding: 3px 9px;
+    margin-bottom: 8px;
+  }
+  .chart-desc {
+    font-size: 12.5px;
+    color: #4a5568;
+    line-height: 1.55;
+  }
+  .chart-axes {
+    margin-top: 8px;
+    font-size: 11.5px;
+    color: var(--light);
+  }
+  .chart-axes strong { color: var(--navy); }
+  /* ── Source tags ── */
+  .source-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+    color: #fff;
+    margin-right: 4px;
+    margin-bottom: 4px;
+  }
+  /* ── Tab section ── */
+  .tab-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--blue);
+    margin-right: 6px;
+    margin-bottom: 6px;
+  }
+  /* ── Alert band ── */
+  .alert-band {
+    border-radius: 10px;
+    padding: .9rem 1.1rem;
+    margin: .6rem 0;
+    font-size: 13px;
+    border-left: 4px solid;
+    line-height: 1.5;
+  }
+  .band-red    { background: #fef2f2; border-color: var(--red);    color: #7f1d1d; }
+  .band-yellow { background: #fffbeb; border-color: var(--yellow); color: #78350f; }
+  .band-green  { background: #f0fdf4; border-color: var(--green);  color: #14532d; }
+  .band-blue   { background: #eff6ff; border-color: #3b82f6;       color: #1e3a5f; }
+  .band-purple { background: #f5f3ff; border-color: var(--purple); color: #4c1d95; }
+  /* ── Separator ── */
+  .sep { height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); margin: 2rem 0; }
+  /* ── Footer ── */
+  footer {
+    text-align: center;
+    padding: 2rem;
+    font-size: 12px;
+    color: var(--light);
+    border-top: 1px solid var(--border);
+    background: var(--card);
+    margin-top: 3rem;
+  }
+  /* ── Drill table ── */
+  table.drill { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: .5rem; }
+  table.drill th { text-align: left; padding: 7px 12px; background: rgba(62,92,118,.07); color: var(--blue); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+  table.drill td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: #4a5568; }
+  table.drill tr:last-child td { border-bottom: none; }
+  @media print {
+    .hero { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .kpi-card::before, .chart-card::before { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══ HERO ══════════════════════════════════════════════════════ -->
+<div class="hero">
+  <div class="hero-badge">InsightFlow Executive · Documentation technique</div>
+  <h1>KPIs &amp; Graphiques</h1>
+  <p>Référence complète de tous les indicateurs, graphiques et signaux affichés dans les dashboards — dashboard principal et dashboards par source (Gmail, Outlook, Slack, Jira, ClickUp).</p>
+  <p style="margin-top:.6rem;font-size:.85rem;color:rgba(240,235,216,.5)">Généré le 12 juin 2026 · InsightFlow Executive v2</p>
+</div>
+
+<div class="container">
+
+<!-- ══ TABLE DES MATIÈRES ══════════════════════════════════════ -->
+<div class="toc">
+  <div class="toc-title">Table des matières</div>
+  <ol>
+    <li><a href="#dashboard-principal">Dashboard Principal (Vue globale)</a>
+      <ol>
+        <li><a href="#kpis-principaux">KPIs principaux (12 indicateurs)</a></li>
+        <li><a href="#graphiques-principaux">Graphiques (6 visualisations)</a></li>
+        <li><a href="#intelligence-ceo">Section Intelligence CEO</a></li>
+        <li><a href="#drill-through">Panels Drill-through</a></li>
+        <li><a href="#onglets-principaux">Onglets : Alertes, Décisions, Équipe</a></li>
+      </ol>
+    </li>
+    <li><a href="#dashboard-gmail">Dashboard Gmail</a>
+      <ol>
+        <li><a href="#kpis-gmail">KPIs spécifiques Gmail</a></li>
+        <li><a href="#graphiques-gmail">Graphiques Gmail</a></li>
+        <li><a href="#alertes-gmail">Sections Alertes Gmail</a></li>
+      </ol>
+    </li>
+    <li><a href="#dashboard-outlook">Dashboard Outlook</a></li>
+    <li><a href="#dashboard-autres">Dashboards Slack / Jira / ClickUp</a></li>
+    <li><a href="#signaux-nlp">Signaux NLP — Labels business</a></li>
+    <li><a href="#composants-communs">Composants communs (tous dashboards)</a></li>
+    <li><a href="#couleurs-seuils">Codes couleur &amp; seuils globaux</a></li>
+  </ol>
+</div>
+
+<!-- ══ 1. DASHBOARD PRINCIPAL ════════════════════════════════════ -->
+<div id="dashboard-principal" class="section-header">
+  <div class="section-dot" style="background:#1d2d44"></div>
+  <h2>1 · Dashboard Principal</h2>
+  <span class="section-badge">Vue globale</span>
+</div>
+<p style="font-size:13px;color:#4a5568;margin-bottom:1.25rem">
+  Le dashboard principal agrège toutes les sources connectées (Gmail, Slack, Jira, ClickUp, Outlook…) en une vue unifiée. Il est organisé en 4 onglets : <strong>Vue d'ensemble</strong>, <strong>Alertes &amp; Risques</strong>, <strong>Décisions</strong>, <strong>Équipe &amp; Système</strong>.
+  Un filtre de période (Aujourd'hui / 7j / 30j / 90j) s'applique à tous les indicateurs.
+</p>
+<div style="margin-bottom:1rem">
+  <span class="tab-pill">◈ Vue d'ensemble</span>
+  <span class="tab-pill">🚨 Alertes &amp; Risques</span>
+  <span class="tab-pill">✅ Décisions</span>
+  <span class="tab-pill">🧠 Équipe &amp; Système</span>
+</div>
+
+<!-- ─ KPIs ─────────────────────────────────────────────────── -->
+<div id="kpis-principaux" class="sub-header">Indicateurs Clés de Performance (KPIs) — Vue d'ensemble</div>
+
+<div class="kpi-grid">
+
+  <div class="kpi-card" style="--accent:#3e5c76">
+    <div class="kpi-top">
+      <div class="kpi-icon">📦</div>
+      <div class="kpi-name">Messages totaux</div>
+    </div>
+    <div class="kpi-formula">data.total_items</div>
+    <div class="kpi-desc">Nombre total de messages synchronisés depuis toutes les sources sur la période sélectionnée. Sert de dénominateur pour les taux (risque, sentiment, NLP).</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-info">Cliquable → drill-through "Répartition par source"</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#22c55e">
+    <div class="kpi-top">
+      <div class="kpi-icon">🔗</div>
+      <div class="kpi-name">Sources connectées</div>
+    </div>
+    <div class="kpi-formula">connected_sources / total_sources</div>
+    <div class="kpi-desc">Ratio entre les sources ayant renvoyé des données et le total configuré. Une source est "active" si elle a au moins 1 message dans la période.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-info">Ex : 3/7 → 3 sources actives sur 7</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#ef4444">
+    <div class="kpi-top">
+      <div class="kpi-icon">⚠️</div>
+      <div class="kpi-name">Alertes critiques</div>
+    </div>
+    <div class="kpi-formula">data.critical_alerts</div>
+    <div class="kpi-desc">Nombre de messages NLP-classifiés comme Blocked, Urgent, Risk ou Conflict avec un score de priorité élevé. Déclenche le badge rouge sur l'onglet Alertes.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-high">🔴 > 5 = Critique</span>
+      <span class="thresh thresh-medium">🟡 2–5 = Modéré</span>
+      <span class="thresh thresh-low">🟢 0–1 = Faible</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#ef4444">
+    <div class="kpi-top">
+      <div class="kpi-icon">🎯</div>
+      <div class="kpi-name">Indice de risque</div>
+    </div>
+    <div class="kpi-formula">data.risk_index / 100</div>
+    <div class="kpi-desc">Score composite (0–100) calculé à partir du taux de messages à risque, du score de burnout moyen, du nombre d'escalades et du sentiment négatif global.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-high">🔴 > 60 = Critique</span>
+      <span class="thresh thresh-medium">🟡 30–60 = Modéré</span>
+      <span class="thresh thresh-low">🟢 < 30 = Faible</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#f59e0b">
+    <div class="kpi-top">
+      <div class="kpi-icon">⚡</div>
+      <div class="kpi-name">Signaux de risque</div>
+    </div>
+    <div class="kpi-formula">intel.risk_count</div>
+    <div class="kpi-desc">Nombre de messages portant au moins un label à risque (Blocked, Urgent, Risk, Conflict, Overload, Concern). Comptage direct des sorties NLP.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-high">> 10 = Élevé</span>
+      <span class="thresh thresh-medium">4–10 = Moyen</span>
+      <span class="thresh thresh-low">0–3 = Faible</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#3e5c76">
+    <div class="kpi-top">
+      <div class="kpi-icon">⚡</div>
+      <div class="kpi-name">Vélocité hebdomadaire</div>
+    </div>
+    <div class="kpi-formula">velocity.this_week vs velocity.last_week</div>
+    <div class="kpi-desc">Volume de messages reçus cette semaine comparé à la semaine précédente. La flèche ↑/↓ indique la tendance en pourcentage. Utile pour détecter les pics d'activité.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-info">Δ% = (cette_sem − sem_passée) / sem_passée × 100</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#22c55e">
+    <div class="kpi-top">
+      <div class="kpi-icon">😊</div>
+      <div class="kpi-name">Sentiment positif</div>
+    </div>
+    <div class="kpi-formula">sentiment.positive %</div>
+    <div class="kpi-desc">Pourcentage de messages classifiés POSITIVE par le modèle NLP de sentiment (CamemBERT fine-tuné). Un score élevé indique un climat de communication sain.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-info">Complémentaire : neutral + negative = 100%</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#ef4444">
+    <div class="kpi-top">
+      <div class="kpi-icon">📉</div>
+      <div class="kpi-name">Sentiment négatif</div>
+    </div>
+    <div class="kpi-formula">sentiment.negative %</div>
+    <div class="kpi-desc">Pourcentage de messages classifiés NEGATIVE. Un taux élevé peut signaler des tensions, des blocages ou de la frustration dans les équipes ou chez les clients.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-high">> 30% = Critique</span>
+      <span class="thresh thresh-medium">15–30% = Attention</span>
+      <span class="thresh thresh-low">< 15% = Normal</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#8b5cf6">
+    <div class="kpi-top">
+      <div class="kpi-icon">🧠</div>
+      <div class="kpi-name">Couverture NLP</div>
+    </div>
+    <div class="kpi-formula">intel.nlp_coverage %</div>
+    <div class="kpi-desc">Taux de messages qui ont été analysés par le pipeline NLP (business label + sentiment + émotion). Un taux < 80% signifie que certains messages ne sont pas encore traités (sync en cours).</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-low">> 80% = Excellent</span>
+      <span class="thresh thresh-medium">50–80% = Partiel</span>
+      <span class="thresh thresh-high">< 50% = Sync requis</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#748cab">
+    <div class="kpi-top">
+      <div class="kpi-icon">⭐</div>
+      <div class="kpi-name">Source principale</div>
+    </div>
+    <div class="kpi-formula">argmax(by_source)</div>
+    <div class="kpi-desc">La source ayant généré le plus de messages sur la période. Indique où se concentre l'activité de communication du CEO (ex : Gmail 142 msgs).</div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#ef4444">
+    <div class="kpi-top">
+      <div class="kpi-icon">🚩</div>
+      <div class="kpi-name">Items à risque</div>
+    </div>
+    <div class="kpi-formula">intel.at_risk_items.length</div>
+    <div class="kpi-desc">Nombre de messages identifiés comme nécessitant une attention immédiate du CEO — combinaison d'un label risqué ET d'un score de priorité élevé.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-high">> 5 = Critique</span>
+      <span class="thresh thresh-medium">2–5 = Attention</span>
+      <span class="thresh thresh-low">0–1 = Normal</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#f59e0b">
+    <div class="kpi-top">
+      <div class="kpi-icon">📊</div>
+      <div class="kpi-name">Taux de risque global</div>
+    </div>
+    <div class="kpi-formula">intel.risk_rate % = risk_count / total_items × 100</div>
+    <div class="kpi-desc">Proportion de messages à risque sur l'ensemble des messages analysés. C'est le KPI le plus synthétique de la santé communicationnelle de l'organisation.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-high">> 30% = Critique</span>
+      <span class="thresh thresh-medium">15–30% = Modéré</span>
+      <span class="thresh thresh-low">< 15% = Sain</span>
+    </div>
+  </div>
+
+</div><!-- /kpi-grid -->
+
+<!-- ─ GRAPHIQUES PRINCIPAUX ─────────────────────────────────── -->
+<div id="graphiques-principaux" class="sub-header">Graphiques — Vue d'ensemble</div>
+
+<div class="chart-grid">
+
+  <div class="chart-card" style="--accent:#3e5c76">
+    <div class="chart-name">Activité globale</div>
+    <div class="chart-sub">Messages par jour · Toutes sources</div>
+    <div class="chart-type">📈 LineChart</div>
+    <div class="chart-desc">Courbe du volume quotidien de messages sur la période sélectionnée. Permet de repérer des pics d'activité inhabituels ou des creux de communication.</div>
+    <div class="chart-axes"><strong>Axe X :</strong> Dates · <strong>Axe Y :</strong> Nombre de messages · <strong>Données :</strong> <code>data.activity_timeline</code></div>
+  </div>
+
+  <div class="chart-card" style="--accent:#ef4444">
+    <div class="chart-name">Tendance des risques</div>
+    <div class="chart-sub">Blocked · Urgent · Conflict · Overload</div>
+    <div class="chart-type">📈 LineChart (rouge)</div>
+    <div class="chart-desc">Évolution du nombre de messages à risque par jour. Une tendance à la hausse est un signal d'alarme précoce pour le CEO.</div>
+    <div class="chart-axes"><strong>Axe X :</strong> Dates · <strong>Axe Y :</strong> Nb signaux risque · <strong>Données :</strong> <code>intel.risk_trend</code></div>
+  </div>
+
+  <div class="chart-card" style="--accent:#3e5c76">
+    <div class="chart-name">Volume par source</div>
+    <div class="chart-sub">Nombre de messages par outil</div>
+    <div class="chart-type">📊 BarChart</div>
+    <div class="chart-desc">Histogramme comparant le volume de messages de chaque source. Chaque barre a la couleur de la source (Gmail = rouge, Slack = violet, Jira = bleu…).</div>
+    <div class="chart-axes"><strong>Axe X :</strong> Sources · <strong>Axe Y :</strong> Nb messages · <strong>Données :</strong> <code>data.by_source</code></div>
+  </div>
+
+  <div class="chart-card" style="--accent:#7B68EE">
+    <div class="chart-name">Répartition sources</div>
+    <div class="chart-sub">Part de chaque outil dans le total</div>
+    <div class="chart-type">🍩 DonutChart</div>
+    <div class="chart-desc">Donut montrant la proportion de chaque source dans le volume total. Au centre : "items". Utile pour identifier la source dominante en un coup d'œil.</div>
+    <div class="chart-axes"><strong>Données :</strong> <code>data.by_source</code> → tranches colorées par source</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#22c55e">
+    <div class="chart-name">Polarité — Sentiment global</div>
+    <div class="chart-sub">Distribution positif / neutre / négatif</div>
+    <div class="chart-type">🍩 DonutChart</div>
+    <div class="chart-desc">Répartition du sentiment sur l'ensemble des messages analysés. Vert = positif, gris = neutre, rouge = négatif. Cliquer sur le KPI Sentiment → ce graphique en drill-through.</div>
+    <div class="chart-axes"><strong>Données :</strong> <code>sentiment.positive / neutral / negative</code></div>
+  </div>
+
+  <div class="chart-card" style="--accent:#8b5cf6">
+    <div class="chart-name">Heatmap des tensions</div>
+    <div class="chart-sub">Heure × Jour — frustrations et tensions détectées</div>
+    <div class="chart-type">🔥 HeatmapChart</div>
+    <div class="chart-desc">Grille 24h × 7 jours colorée par intensité des messages négatifs/tendus. Permet d'identifier les plages horaires critiques (ex : lundi 9h, vendredi 17h). Les cellules rouge foncé indiquent une concentration de messages à forte charge émotionnelle.</div>
+    <div class="chart-axes"><strong>Axe X :</strong> Heures (0–23) · <strong>Axe Y :</strong> Jours de la semaine · <strong>Intensité :</strong> nb messages négatifs</div>
+  </div>
+
+</div>
+
+<!-- ─ INTELLIGENCE CEO ──────────────────────────────────────── -->
+<div id="intelligence-ceo" class="sub-header">Section Intelligence CEO</div>
+<div class="chart-grid">
+
+  <div class="chart-card" style="--accent:#ef4444">
+    <div class="chart-name">Messages à lire maintenant</div>
+    <div class="chart-sub">Top 3 messages critiques · PriorityMessages</div>
+    <div class="chart-type">📋 Liste</div>
+    <div class="chart-desc">Les 3 messages les plus urgents triés par score de priorité décroissant. Chaque ligne montre l'auteur, le titre tronqué, le label business et le score. Clic → MessageDetailModal avec génération de brouillon IA.</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#3e5c76">
+    <div class="chart-name">Recommandations IA</div>
+    <div class="chart-sub">Actions suggérées par le LLM · AIRecommendations</div>
+    <div class="chart-type">🤖 IA (LLM)</div>
+    <div class="chart-desc">Liste d'actions concrètes générées par le LLM (Ollama) à partir des messages à risque. Chaque recommandation indique : quoi faire, avec qui, et pourquoi (analyse du contexte NLP).</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#f97316">
+    <div class="chart-name">Attribution des alertes</div>
+    <div class="chart-sub">Qui génère le plus d'urgences ? · AttributionPanel</div>
+    <div class="chart-type">📊 BarChart + Classement</div>
+    <div class="chart-desc">Classement des expéditeurs selon leur nombre de messages critiques générés. Permet au CEO d'identifier les collaborateurs ou clients qui créent le plus de friction.</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#1d2d44">
+    <div class="chart-name">Organisation Health Panel</div>
+    <div class="chart-sub">Score de santé globale · OrganizationHealthPanel</div>
+    <div class="chart-type">🏥 Score composite</div>
+    <div class="chart-desc">Résumé exécutif en haut de page montrant un score de santé organisationnelle (0–100) calculé à partir du risque, du burnout, du sentiment et de la vélocité. Barre de progression colorée selon le niveau.</div>
+  </div>
+
+</div>
+
+<!-- ─ DRILL-THROUGH ─────────────────────────────────────────── -->
+<div id="drill-through" class="sub-header">Panels Drill-through (clic sur un KPI)</div>
+<p style="font-size:12.5px;color:#4a5568;margin-bottom:.75rem">Chaque KPI de la vue d'ensemble est cliquable. Un panneau latéral s'ouvre avec le détail.</p>
+
+<table class="drill">
+  <tr>
+    <th>KPI cliqué</th>
+    <th>Contenu du panel</th>
+    <th>Visualisation</th>
+  </tr>
+  <tr>
+    <td><strong>Messages totaux</strong></td>
+    <td>Répartition détaillée par source avec pourcentage</td>
+    <td>DonutChart + liste colorée</td>
+  </tr>
+  <tr>
+    <td><strong>Sources connectées</strong></td>
+    <td>Liste de toutes les sources avec statut Actif/Inactif et volume</td>
+    <td>Cards par source</td>
+  </tr>
+  <tr>
+    <td><strong>Alertes critiques</strong></td>
+    <td>Les 7 premiers items à risque avec leurs labels NLP</td>
+    <td>Liste avec badges</td>
+  </tr>
+  <tr>
+    <td><strong>Indice de risque</strong></td>
+    <td>Score /100 avec jauge colorée + tendance historique</td>
+    <td>Jauge + LineChart</td>
+  </tr>
+  <tr>
+    <td><strong>Signaux / Taux de risque</strong></td>
+    <td>Distribution de tous les labels business avec % et comptage</td>
+    <td>Liste avec barres</td>
+  </tr>
+  <tr>
+    <td><strong>Vélocité hebdo</strong></td>
+    <td>Comparatif semaine passée vs cette semaine + delta %</td>
+    <td>BarChart 2 barres</td>
+  </tr>
+  <tr>
+    <td><strong>Sentiment positif/négatif</strong></td>
+    <td>Répartition positive/neutre/négative avec pourcentages</td>
+    <td>DonutChart</td>
+  </tr>
+  <tr>
+    <td><strong>Couverture NLP</strong></td>
+    <td>Gauge circulaire SVG avec % + message d'état</td>
+    <td>Gauge SVG animée</td>
+  </tr>
+</table>
+
+<!-- ─ ONGLETS ALERTES / DÉCISIONS / ÉQUIPE ─────────────────── -->
+<div id="onglets-principaux" class="sub-header">Onglets — Alertes · Décisions · Équipe &amp; Système</div>
+
+<div class="kpi-grid">
+  <div class="kpi-card" style="--accent:#ef4444">
+    <div class="kpi-top"><div class="kpi-icon">🚨</div><div class="kpi-name">Onglet Alertes &amp; Risques</div></div>
+    <div class="kpi-desc">Affiche le <strong>RiskFeed</strong> (liste des messages à risque NLP), la <strong>AnomalyCard</strong> (anomalies détectées par Isolation Forest) et la <strong>PriorityInbox</strong> (emails prioritaires de la semaine).</div>
+  </div>
+  <div class="kpi-card" style="--accent:#22c55e">
+    <div class="kpi-top"><div class="kpi-icon">✅</div><div class="kpi-name">Onglet Décisions</div></div>
+    <div class="kpi-desc">Deux colonnes : <strong>DecisionLog</strong> (journal des décisions prises, horodatées) et <strong>ActionItems</strong> (tâches à faire). En dessous : <strong>CompareMode</strong> pour comparer deux périodes.</div>
+  </div>
+  <div class="kpi-card" style="--accent:#8b5cf6">
+    <div class="kpi-top"><div class="kpi-icon">🧠</div><div class="kpi-name">Onglet Équipe &amp; Système</div></div>
+    <div class="kpi-desc"><strong>BurnoutCard</strong> (score de surcharge par collaborateur), <strong>MLStatusCard</strong> (état des modèles ML en production), <strong>TeamOverloadCard</strong> (carte thermique de la charge par équipe).</div>
+  </div>
+</div>
+
+<div class="sep"></div>
+
+<!-- ══ 2. DASHBOARD GMAIL ═════════════════════════════════════ -->
+<div id="dashboard-gmail" class="section-header">
+  <div class="section-dot" style="background:var(--gmail)"></div>
+  <h2>2 · Dashboard Gmail</h2>
+  <span class="section-badge" style="background:var(--gmail)">Gmail</span>
+</div>
+<p style="font-size:13px;color:#4a5568;margin-bottom:1.25rem">
+  Accessible via <code>/dashboard/gmail</code>. Analyse approfondie des emails — threads, temps de réponse, escalades, désalignements. Même structure 4 onglets que le dashboard principal.
+</p>
+
+<div id="kpis-gmail" class="sub-header">KPIs Gmail</div>
+<div class="kpi-grid">
+
+  <div class="kpi-card" style="--accent:#EA4335">
+    <div class="kpi-top"><div class="kpi-icon">📥</div><div class="kpi-name">Gmail (semaine)</div></div>
+    <div class="kpi-formula">volume.this_week · Δ% vs last_week</div>
+    <div class="kpi-desc">Emails reçus cette semaine vs semaine précédente. La flèche verte ↑ / rouge ↓ indique la tendance.</div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#EA4335">
+    <div class="kpi-top"><div class="kpi-icon">🔴</div><div class="kpi-name">Non lus</div></div>
+    <div class="kpi-formula">unread.count · unread.rate %</div>
+    <div class="kpi-desc">Emails INBOX non lus (sans label READ). Le taux = non_lus / total_inbox × 100.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-high">> 40% = Critique</span>
+      <span class="thresh thresh-medium">20–40% = Attention</span>
+      <span class="thresh thresh-low">< 20% = Normal</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#f59e0b">
+    <div class="kpi-top"><div class="kpi-icon">⭐</div><div class="kpi-name">Importants</div></div>
+    <div class="kpi-formula">important.count · important.rate %</div>
+    <div class="kpi-desc">Emails avec label IMPORTANT (marqués par Gmail ou Google AI). Taux = important / total × 100.</div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#3e5c76">
+    <div class="kpi-top"><div class="kpi-icon">⚡</div><div class="kpi-name">Temps de réponse moyen</div></div>
+    <div class="kpi-formula">avg_response_hours (heures)</div>
+    <div class="kpi-desc">Calculé en associant chaque email INBOX avec le premier email SENT du même thread qui le suit. Exprimé en heures. "N/A" si le dossier Envoyé n'est pas synchronisé.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-info">< 2h = Réactif · 2–24h = Normal · > 24h = Lent</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#ef4444">
+    <div class="kpi-top"><div class="kpi-icon">🚨</div><div class="kpi-name">Escalades</div></div>
+    <div class="kpi-formula">escalation.count</div>
+    <div class="kpi-desc">Emails contenant les mots-clés : <em>urgent, ASAP, critique, bloqué, immédiatement, escalade</em>. Détecté par regex dans le sujet + corps.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-high">> 5 = Critique</span>
+      <span class="thresh thresh-medium">2–5 = Modéré</span>
+      <span class="thresh thresh-low">0–1 = Normal</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#ef4444">
+    <div class="kpi-top"><div class="kpi-icon">⏰</div><div class="kpi-name">Sans réponse +48h</div></div>
+    <div class="kpi-formula">no_reply_48h.count</div>
+    <div class="kpi-desc">Emails IMPORTANT reçus il y a plus de 48h sans aucun email SENT dans leur thread. Ces emails nécessitent une action immédiate du CEO.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-high">> 5 = Urgent</span>
+      <span class="thresh thresh-medium">2–5 = Attention</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#ef4444">
+    <div class="kpi-top"><div class="kpi-icon">❗</div><div class="kpi-name">Critiques sans réponse</div></div>
+    <div class="kpi-formula">unanswered_critical.count</div>
+    <div class="kpi-desc">Intersection entre <em>escalades</em> (mots-clés urgence) et <em>sans réponse +48h</em>. Ce sont les cas les plus critiques — escalade reçue ET ignorée.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-high">≥ 1 = Risque critique</span>
+      <span class="thresh thresh-low">0 = OK</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#f59e0b">
+    <div class="kpi-top"><div class="kpi-icon">🔁</div><div class="kpi-name">Threads longs</div></div>
+    <div class="kpi-formula">threads.long_count · threads.avg_length</div>
+    <div class="kpi-desc">Nombre de threads Gmail ayant plus de <strong>3 messages</strong>. Un thread long indique souvent un sujet non résolu ou un désalignement entre parties. <code>avg_length</code> = longueur moyenne de tous les threads.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-medium">> 5 = Surveillance</span>
+      <span class="thresh thresh-low">0–5 = Normal</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#f59e0b">
+    <div class="kpi-top"><div class="kpi-icon">↔️</div><div class="kpi-name">Back-and-forth score</div></div>
+    <div class="kpi-formula">threads.back_and_forth_score / 10</div>
+    <div class="kpi-desc">Intensité des échanges : proportion de threads avec plus de 2 aller-retours × 10. Un score élevé signale des conversations longues et potentiellement conflictuelles.</div>
+    <div class="kpi-thresh">
+      <span class="thresh thresh-high">> 6/10 = Intense</span>
+      <span class="thresh thresh-medium">3–6 = Modéré</span>
+      <span class="thresh thresh-low">< 3 = Faible</span>
+    </div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#3e5c76">
+    <div class="kpi-top"><div class="kpi-icon">👤</div><div class="kpi-name">Expéditeurs uniques</div></div>
+    <div class="kpi-formula">unique_senders</div>
+    <div class="kpi-desc">Nombre d'adresses email distinctes ayant envoyé au moins un message dans la période. Indicateur de la diversité du réseau de contact du CEO.</div>
+  </div>
+
+</div>
+
+<!-- ─ GRAPHIQUES GMAIL ──────────────────────────────────────── -->
+<div id="graphiques-gmail" class="sub-header">Graphiques Gmail</div>
+<div class="chart-grid">
+
+  <div class="chart-card" style="--accent:#EA4335">
+    <div class="chart-name">Activité (par jour)</div>
+    <div class="chart-sub">Volume d'emails reçus jour par jour</div>
+    <div class="chart-type">📊 BarChart</div>
+    <div class="chart-desc">Histogramme du nombre d'emails par jour sur la période. Chaque barre = un jour. Permet de visualiser les pics de réception et les creux (weekends, jours fériés).</div>
+    <div class="chart-axes"><strong>Données :</strong> <code>data.by_day</code> → [{day, count}]</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#22c55e">
+    <div class="chart-name">Polarité des communications</div>
+    <div class="chart-sub">Sentiment global Gmail</div>
+    <div class="chart-type">🍩 DonutChart</div>
+    <div class="chart-desc">Répartition positive/neutre/négative des emails Gmail. Identique à la vue principale mais filtrée sur Gmail uniquement.</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#EA4335">
+    <div class="chart-name">Top expéditeurs</div>
+    <div class="chart-sub">5 personnes qui vous écrivent le plus</div>
+    <div class="chart-type">🍩 DonutChart</div>
+    <div class="chart-desc">Les 5 expéditeurs les plus actifs, chacun avec une couleur. Au centre : total "msgs". Permet d'identifier les interlocuteurs prioritaires du CEO.</div>
+    <div class="chart-axes"><strong>Données :</strong> <code>data.top_senders</code> → [{name, count}]</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#f59e0b">
+    <div class="chart-name">Distribution des labels Gmail</div>
+    <div class="chart-sub">INBOX · SENT · IMPORTANT · STARRED…</div>
+    <div class="chart-type">🍩 DonutChart</div>
+    <div class="chart-desc">Répartition des labels natifs Gmail sur les emails synchronisés. Couleurs : IMPORTANT = orange, STARRED = bleu, SENT = vert, SPAM = rouge, DRAFT = gris.</div>
+    <div class="chart-axes"><strong>Données :</strong> <code>data.label_distribution</code></div>
+  </div>
+
+  <div class="chart-card" style="--accent:#ef4444">
+    <div class="chart-name">Tendance des risques</div>
+    <div class="chart-sub">Évolution des labels à risque</div>
+    <div class="chart-type">📈 LineChart (rouge)</div>
+    <div class="chart-desc">Même graphique que le dashboard principal, filtré sur Gmail. Affiche l'évolution des messages Blocked/Urgent/Risk jour par jour.</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#3e5c76">
+    <div class="chart-name">Pic d'activité par heure</div>
+    <div class="chart-sub">Répartition horaire 6h–22h</div>
+    <div class="chart-type">📊 BarChart</div>
+    <div class="chart-desc">Histogramme du volume d'emails par heure de la journée (plage 6h–22h). Permet d'identifier les heures de pointe et les messages reçus hors horaires.</div>
+    <div class="chart-axes"><strong>Données :</strong> <code>data.by_hour[6..22]</code> → [{hour, count}]</div>
+  </div>
+
+</div>
+
+<!-- ─ ALERTES GMAIL ─────────────────────────────────────────── -->
+<div id="alertes-gmail" class="sub-header">Sections spéciales Gmail — Onglet Alertes</div>
+
+<div class="alert-band band-red">
+  <strong>🚨 Emails d'escalade — action requise</strong><br>
+  Liste des emails contenant des mots-clés d'urgence (urgent, ASAP, critique…). Fond rouge, bordure gauche rouge. Chaque item montre le titre, l'expéditeur et l'horodatage.
+</div>
+
+<div class="alert-band band-yellow">
+  <strong>🔁 Threads à risque de désalignement</strong><br>
+  Threads Gmail avec plus de 3 messages (allers-retours prolongés sans résolution). <strong>Cliquable</strong> : déplier un thread affiche la liste de ses emails numérotés avec leur sentiment. Clic sur un email → MessageDetailModal complet avec génération de brouillon IA.
+</div>
+
+<div class="sep"></div>
+
+<!-- ══ 3. DASHBOARD OUTLOOK ══════════════════════════════════ -->
+<div id="dashboard-outlook" class="section-header">
+  <div class="section-dot" style="background:var(--outlook)"></div>
+  <h2>3 · Dashboard Outlook</h2>
+  <span class="section-badge" style="background:var(--outlook)">Outlook</span>
+</div>
+
+<div class="kpi-grid">
+
+  <div class="kpi-card" style="--accent:#0078D4">
+    <div class="kpi-top"><div class="kpi-icon">🔴</div><div class="kpi-name">Non lus</div></div>
+    <div class="kpi-formula">unread.count · unread.rate %</div>
+    <div class="kpi-desc">Emails Outlook non lus sur la période. Même calcul que Gmail mais basé sur l'API Microsoft Graph (isRead=false).</div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#f59e0b">
+    <div class="kpi-top"><div class="kpi-icon">⭐</div><div class="kpi-name">Haute importance</div></div>
+    <div class="kpi-formula">high_importance.count · rate %</div>
+    <div class="kpi-desc">Emails avec importance = "high" ou "urgent" dans les métadonnées Microsoft. Équivalent Outlook de "Important" dans Gmail.</div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#3e5c76">
+    <div class="kpi-top"><div class="kpi-icon">📎</div><div class="kpi-name">Pièces jointes</div></div>
+    <div class="kpi-formula">attachments.count · attachments.rate %</div>
+    <div class="kpi-desc">Emails contenant au moins une pièce jointe. Indicateur spécifique Outlook pour identifier les échanges de documents importants.</div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#ef4444">
+    <div class="kpi-top"><div class="kpi-icon">🚨</div><div class="kpi-name">Escalades Outlook</div></div>
+    <div class="kpi-formula">escalation.count</div>
+    <div class="kpi-desc">Même détection par mots-clés que Gmail (urgent · ASAP · critique) mais appliquée aux emails Outlook/Exchange.</div>
+  </div>
+
+</div>
+
+<div class="sep"></div>
+
+<!-- ══ 4. DASHBOARDS SLACK / JIRA / CLICKUP ══════════════════ -->
+<div id="dashboard-autres" class="section-header">
+  <div class="section-dot" style="background:var(--slack)"></div>
+  <h2>4 · Dashboards Slack / Jira / ClickUp</h2>
+</div>
+
+<div class="kpi-grid">
+
+  <div class="kpi-card" style="--accent:#4A154B">
+    <div class="kpi-top"><div class="kpi-icon">💬</div><div class="kpi-name">KPIs communs (toutes sources)</div></div>
+    <div class="kpi-desc">Pour Slack, Jira et ClickUp, les KPIs communs sont : <strong>Volume cette semaine</strong> (Δ%), <strong>Total analysés</strong>, <strong>Signaux de risque</strong>, <strong>Taux de risque</strong>, <strong>Sentiment positif/négatif</strong>, <strong>Couverture NLP</strong>, <strong>Alertes escalade</strong> (mots-clés urgence).</div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#4A154B">
+    <div class="kpi-top"><div class="kpi-icon">📊</div><div class="kpi-name">Top auteurs (Slack/Jira)</div></div>
+    <div class="kpi-formula">data.top_authors → [{name, count}]</div>
+    <div class="kpi-desc">Equivalent du "Top expéditeurs" pour les sources non-email. Montre les 5 personnes les plus actives dans Slack ou sur Jira.</div>
+    <div class="chart-type" style="display:inline-flex">🍩 DonutChart</div>
+  </div>
+
+  <div class="kpi-card" style="--accent:#0052CC">
+    <div class="kpi-top"><div class="kpi-icon">📋</div><div class="kpi-name">Mots-clés fréquents</div></div>
+    <div class="kpi-formula">data.keyword_frequency → [{word, count}]</div>
+    <div class="kpi-desc">Nuage de tags des mots les plus fréquents dans les messages de la source. Taille proportionnelle à la fréquence. Utile pour détecter les sujets récurrents (budget, deadline, client…).</div>
+    <div class="chart-type" style="display:inline-flex">🏷️ Tag cloud</div>
+  </div>
+
+</div>
+
+<div class="sep"></div>
+
+<!-- ══ 5. SIGNAUX NLP ══════════════════════════════════════════ -->
+<div id="signaux-nlp" class="section-header">
+  <div class="section-dot" style="background:#f59e0b"></div>
+  <h2>5 · Signaux NLP — Labels Business</h2>
+  <span class="section-badge" style="background:#f59e0b;color:#0d1321">IA · NLP</span>
+</div>
+<p style="font-size:13px;color:#4a5568;margin-bottom:1.25rem">
+  Chaque message est classifié par le moteur NLP (CamemBERT + règles métier) dans l'un de ces 8 labels. Affiché dans le <strong>SignalPanel</strong> présent sur tous les dashboards.
+</p>
+
+<div class="kpi-grid">
+  <div class="kpi-card" style="--accent:#ef4444">
+    <div class="kpi-top"><div class="kpi-icon" style="background:#fef2f2">🔴</div><div class="kpi-name" style="color:#ef4444">Blocked</div></div>
+    <div class="kpi-desc">Message signalant un blocage opérationnel : quelqu'un est bloqué, un projet est arrêté, une ressource manque. Priorité maximale.</div>
+  </div>
+  <div class="kpi-card" style="--accent:#f97316">
+    <div class="kpi-top"><div class="kpi-icon" style="background:#fff7ed">🟠</div><div class="kpi-name" style="color:#f97316">Urgent</div></div>
+    <div class="kpi-desc">Demande d'action immédiate, délai critique, deadline imminente. Mots-clés : urgent, ASAP, deadline, EOD.</div>
+  </div>
+  <div class="kpi-card" style="--accent:#f59e0b">
+    <div class="kpi-top"><div class="kpi-icon" style="background:#fffbeb">🟡</div><div class="kpi-name" style="color:#f59e0b">Risk</div></div>
+    <div class="kpi-desc">Signale un risque identifié : financier, technique, client, légal. N'est pas encore une urgence mais doit être surveillé.</div>
+  </div>
+  <div class="kpi-card" style="--accent:#8b5cf6">
+    <div class="kpi-top"><div class="kpi-icon" style="background:#f5f3ff">🟣</div><div class="kpi-name" style="color:#8b5cf6">Conflict</div></div>
+    <div class="kpi-desc">Désaccord entre parties, conflit d'équipe, tension interpersonnelle. Nécessite une médiation ou une décision du CEO.</div>
+  </div>
+  <div class="kpi-card" style="--accent:#ec4899">
+    <div class="kpi-top"><div class="kpi-icon" style="background:#fdf2f8">🔴</div><div class="kpi-name" style="color:#ec4899">Overload</div></div>
+    <div class="kpi-desc">Signal de surcharge de travail pour une personne ou une équipe. Indicateur de burnout potentiel.</div>
+  </div>
+  <div class="kpi-card" style="--accent:#eab308">
+    <div class="kpi-top"><div class="kpi-icon" style="background:#fefce8">🟡</div><div class="kpi-name" style="color:#eab308">Concern</div></div>
+    <div class="kpi-desc">Préoccupation exprimée sans urgence immédiate : inquiétude, questionnement, besoin de clarification.</div>
+  </div>
+  <div class="kpi-card" style="--accent:#22c55e">
+    <div class="kpi-top"><div class="kpi-icon" style="background:#f0fdf4">🟢</div><div class="kpi-name" style="color:#22c55e">Progress</div></div>
+    <div class="kpi-desc">Message positif signalant une avancée, une validation, un succès. Bon signal de dynamique d'équipe.</div>
+  </div>
+  <div class="kpi-card" style="--accent:#94a3b8">
+    <div class="kpi-top"><div class="kpi-icon" style="background:#f8fafc">⚪</div><div class="kpi-name" style="color:#94a3b8">Neutral Update</div></div>
+    <div class="kpi-desc">Information neutre, compte-rendu, mise à jour sans impact décisionnel. Représente la majorité des messages dans un contexte sain.</div>
+  </div>
+</div>
+
+<div class="sep"></div>
+
+<!-- ══ 6. COMPOSANTS COMMUNS ══════════════════════════════════ -->
+<div id="composants-communs" class="section-header">
+  <div class="section-dot" style="background:#3e5c76"></div>
+  <h2>6 · Composants communs (tous dashboards)</h2>
+</div>
+
+<div class="chart-grid">
+
+  <div class="chart-card" style="--accent:#3e5c76">
+    <div class="chart-name">Priority Inbox</div>
+    <div class="chart-sub">Top 8 messages prioritaires de la semaine</div>
+    <div class="chart-type">📋 Liste interactive</div>
+    <div class="chart-desc">Les 8 messages avec le score de priorité le plus élevé. Score = f(urgence, sentiment, label, heure). Clic → MessageDetailModal avec génération de brouillon IA, labels NLP, et fonctionnalité de correction des labels.</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#ef4444">
+    <div class="chart-name">Risk Feed</div>
+    <div class="chart-sub">Signaux de risque détectés</div>
+    <div class="chart-type">⚠️ Feed filtré</div>
+    <div class="chart-desc">Liste des messages avec au moins un label à risque (Blocked, Urgent, Risk, Conflict). Affiche le label, l'auteur et la date. Filtrable par label.</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#8b5cf6">
+    <div class="chart-name">Signal Panel</div>
+    <div class="chart-sub">Distribution des 8 labels business</div>
+    <div class="chart-type">📊 Tableau de bord</div>
+    <div class="chart-desc">Vue d'ensemble de tous les labels NLP avec leur comptage, leur % et un graphique mini. Cliquable pour filtrer les messages par label.</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#f97316">
+    <div class="chart-name">Burnout Card</div>
+    <div class="chart-sub">Score de surcharge par collaborateur</div>
+    <div class="chart-type">🔥 Score + classement</div>
+    <div class="chart-desc">Score de burnout (0–10) calculé pour chaque collaborateur à partir du volume de messages hors horaires, du sentiment négatif et des labels Overload. Affiché seulement si données disponibles.</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#1d2d44">
+    <div class="chart-name">Anomaly Card</div>
+    <div class="chart-sub">Anomalies détectées par Isolation Forest</div>
+    <div class="chart-type">🤖 ML · Isolation Forest</div>
+    <div class="chart-desc">Anomalies détectées dans les patterns de communication : pics anormaux de volume, sentiment inhabituellement négatif, heure d'envoi atypique. Modèle entraîné en arrière-plan par le ML Scheduler.</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#22c55e">
+    <div class="chart-name">ML Status Card</div>
+    <div class="chart-sub">État des modèles IA en production</div>
+    <div class="chart-type">🧠 Monitoring</div>
+    <div class="chart-desc">Affiche le statut de chaque modèle ML (NLP, Isolation Forest, émotion) : dernière exécution, précision, nombre d'items traités, erreurs éventuelles.</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#3e5c76">
+    <div class="chart-name">Ask Anything</div>
+    <div class="chart-sub">Chatbot RAG · Question en langage naturel</div>
+    <div class="chart-type">🤖 LLM + RAG</div>
+    <div class="chart-desc">Permet au CEO de poser une question en français sur ses données (ex : "Quels sont les sujets bloquants cette semaine ?"). Le LLM (Ollama) utilise un retriever RAG (TF-IDF) pour trouver les passages pertinents dans les messages.</div>
+  </div>
+
+  <div class="chart-card" style="--accent:#748cab">
+    <div class="chart-name">MessageDetailModal</div>
+    <div class="chart-sub">Détail d'un message + actions</div>
+    <div class="chart-type">🗂️ Modal</div>
+    <div class="chart-desc">Modal s'ouvrant au clic sur n'importe quel message. Affiche : source, auteur, date, labels NLP, analyse IA, contenu. Pour Gmail : bouton "Générer une réponse" (LLM), éditeur de brouillon, envoi avec pièces jointes, correction des labels (continuous learning).</div>
+  </div>
+
+</div>
+
+<div class="sep"></div>
+
+<!-- ══ 7. COULEURS & SEUILS ══════════════════════════════════= -->
+<div id="couleurs-seuils" class="section-header">
+  <div class="section-dot" style="background:#748cab"></div>
+  <h2>7 · Codes couleur &amp; Seuils globaux</h2>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem">
+
+  <div style="background:var(--card);border-radius:14px;padding:1.25rem;border:1px solid var(--border)">
+    <div class="sub-header" style="margin-top:0">Niveaux de risque</div>
+    <div class="alert-band band-red"><strong>🔴 HIGH (Critique)</strong> — Nécessite une action immédiate du CEO</div>
+    <div class="alert-band band-yellow"><strong>🟡 MEDIUM (Modéré)</strong> — À surveiller, plan d'action à prévoir</div>
+    <div class="alert-band band-green"><strong>🟢 LOW (Faible)</strong> — Dans les normes, aucune action requise</div>
+  </div>
+
+  <div style="background:var(--card);border-radius:14px;padding:1.25rem;border:1px solid var(--border)">
+    <div class="sub-header" style="margin-top:0">Couleurs des sources</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:.5rem">
+      <span class="source-tag" style="background:#EA4335">✉️ Gmail</span>
+      <span class="source-tag" style="background:#0078D4">📨 Outlook</span>
+      <span class="source-tag" style="background:#4A154B">💬 Slack</span>
+      <span class="source-tag" style="background:#0052CC">📋 Jira</span>
+      <span class="source-tag" style="background:#7B68EE">⬆️ ClickUp</span>
+      <span class="source-tag" style="background:#6264A7">🟣 Teams</span>
+      <span class="source-tag" style="background:#333333">📝 Notion</span>
+      <span class="source-tag" style="background:#0078D4">☁️ OneDrive</span>
+    </div>
+  </div>
+
+</div>
+
+<div style="background:var(--card);border-radius:14px;padding:1.25rem;border:1px solid var(--border);margin-bottom:1.5rem">
+  <div class="sub-header" style="margin-top:0">Filtres de période</div>
+  <p style="font-size:13px;color:#4a5568;margin-bottom:.75rem">Tous les KPIs et graphiques se recalculent à la sélection d'une nouvelle période.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <span class="tab-pill">⌛ Aujourd'hui (1j)</span>
+    <span class="tab-pill">📅 7 jours</span>
+    <span class="tab-pill">📅 30 jours</span>
+    <span class="tab-pill">📅 90 jours</span>
+  </div>
+</div>
+
+<div style="background:var(--card);border-radius:14px;padding:1.25rem;border:1px solid var(--border)">
+  <div class="sub-header" style="margin-top:0">Architecture des données (flux)</div>
+  <div style="font-size:13px;color:#4a5568;line-height:1.8">
+    <strong>1. Sync</strong> → Connectors (Gmail API, Outlook Graph, Slack API…) → <code>ItemStore</code><br>
+    <strong>2. NLP Pipeline</strong> → Sentiment (CamemBERT) + Business Label (règles) + Émotion (XLM) + Topic<br>
+    <strong>3. Analytics Engine</strong> → Calcul des KPIs, tendances, threads, scores<br>
+    <strong>4. ML Scheduler</strong> → Isolation Forest (anomalies) + Fine-tuning continu<br>
+    <strong>5. API FastAPI</strong> → <code>/api/analytics/overview</code> · <code>/api/analytics/{source}</code> · <code>/api/emails/draft</code><br>
+    <strong>6. Frontend Next.js</strong> → Dashboards, KPICards, Charts, Modals
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<footer>
+  InsightFlow Executive · Documentation KPIs &amp; Graphiques · Généré le 12 juin 2026<br>
+  PFE — Architecture IA décisionnelle pour dirigeants d'entreprise
+</footer>
+
+</body>
+</html>

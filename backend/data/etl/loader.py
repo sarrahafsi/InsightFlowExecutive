@@ -56,7 +56,7 @@ def _build_source_meta(item: DataItem) -> dict:
 
 # ── Loader principal ─────────────────────────────────────────
 
-def load_items(items: list[DataItem], db: Session, run_nlp: bool = True) -> int:
+def load_items(items: list[DataItem], db: Session, run_nlp: bool = True, org_id: str | None = None, index_rag: bool = True) -> int:
     """
     Upsert les DataItems dans messages_raw avec enrichissement NLP.
     - Nouveaux items : insertion complète avec NLP.
@@ -80,7 +80,8 @@ def load_items(items: list[DataItem], db: Session, run_nlp: bool = True) -> int:
     if run_nlp and new_items:
         try:
             pipeline = get_nlp_pipeline()
-            enriched_list = pipeline.run_batch(new_items)
+            new_items_for_nlp = [i for i in new_items if "SENT" not in (i.tags or [])]
+            enriched_list = pipeline.run_batch(new_items_for_nlp)
             enriched_map = {e.id: e for e in enriched_list}
             logger.info("[ETL] NLP enrichment: %d/%d items processed.", len(enriched_map), len(new_items))
         except Exception as e:
@@ -92,6 +93,7 @@ def load_items(items: list[DataItem], db: Session, run_nlp: bool = True) -> int:
         nlp = enriched_map.get(item.id)
         row = MessageRaw(
             id=item.id,
+            org_id=org_id,
             source=item.source,
             author=item.author,
             author_email=item.metadata.get("from_email", "") if item.metadata else "",
@@ -127,7 +129,7 @@ def load_items(items: list[DataItem], db: Session, run_nlp: bool = True) -> int:
     # ── Update items existants ────────────────────────────────
     updated = 0
     for item in existing_items:
-        db.query(MessageRaw).filter(MessageRaw.id == item.id).update({
+        update: dict = {
             "title":         item.title,
             "content":       (item.content or "")[:10000],
             "tags":          item.tags or [],
@@ -135,7 +137,13 @@ def load_items(items: list[DataItem], db: Session, run_nlp: bool = True) -> int:
             "author":        item.author,
             "timestamp":     item.timestamp,
             "metadata_json": _build_source_meta(item),
-        }, synchronize_session=False)
+        }
+        if org_id is not None:
+            # Migrates items previously inserted with org_id=NULL
+            update["org_id"] = org_id
+        db.query(MessageRaw).filter(MessageRaw.id == item.id).update(
+            update, synchronize_session=False
+        )
         updated += 1
 
     db.commit()
@@ -145,7 +153,7 @@ def load_items(items: list[DataItem], db: Session, run_nlp: bool = True) -> int:
         logger.info("[ETL] %d items existants mis à jour (metadata_json).", updated)
 
     # ── Indexer les nouveaux items dans ChromaDB (RAG) ────────
-    if inserted > 0:
+    if inserted > 0 and index_rag:
         try:
             from intelligence.rag.embedder import index_items
             to_index = [enriched_map.get(i.id, i) for i in new_items]

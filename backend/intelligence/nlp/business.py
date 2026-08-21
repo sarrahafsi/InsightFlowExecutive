@@ -76,7 +76,6 @@ USER_TEMPLATE = """Classify this business communication:
 Source: {source}
 Author: {author}
 Timestamp: {timestamp}
-Sentiment detected: {sentiment}
 Emotion detected: {emotion}
 Behavioral signals: {behavioral_context}
 
@@ -137,7 +136,7 @@ class BusinessClassifier(BaseProcessor):
             item.business_reason     = "Auto-classified: no negative signal detected."
             return item
 
-        result = _call_ollama(self._get_client(), item)
+        result = _call_ollama(None, item)
         if result:
             item.business_label      = result.get("label", "Neutral Update")
             item.business_confidence = float(result.get("confidence", 0.5))
@@ -151,31 +150,37 @@ class BusinessClassifier(BaseProcessor):
 
 
 def _call_ollama(client, item: EnrichedItem) -> Optional[dict]:
-    try:
-        from intelligence.nlp.behavioral import behavioral_context_summary
-        behavioral_ctx = behavioral_context_summary(item.metadata)
+    import httpx
+    from intelligence.nlp.behavioral import behavioral_context_summary
 
-        prompt = USER_TEMPLATE.format(
+    try:
+        behavioral_ctx = behavioral_context_summary(item.metadata)
+        prompt = SYSTEM_PROMPT + "\n\n" + USER_TEMPLATE.format(
             source=item.source,
             author=item.author,
             timestamp=item.timestamp,
-            sentiment=item.sentiment_label or "unknown",
             emotion=item.emotion_label or "unknown",
             behavioral_context=behavioral_ctx,
             content=item.content[:800],
         )
-        response = client.chat.completions.create(
-            model=OLLAMA_MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": prompt},
-            ],
-            temperature=0.1,
-            max_tokens=150,
+        base = OLLAMA_BASE_URL.rstrip("/v1").rstrip("/")
+        resp = httpx.post(
+            f"{base}/api/generate",
+            json={
+                "model":  OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.1,
+                    "num_predict": 150,
+                    "num_gpu":     0,   # CPU-only — prevents GPU VRAM crash
+                },
+            },
+            timeout=60.0,
         )
-        raw = response.choices[0].message.content.strip()
+        resp.raise_for_status()
+        raw = resp.json().get("response", "").strip()
 
-        # Extraire le JSON même si Ollama ajoute du texte autour
         start = raw.find("{")
         end   = raw.rfind("}") + 1
         if start != -1 and end > start:

@@ -59,8 +59,11 @@ class BaseConnector(ABC):
         """
         try:
             if not self._authenticated:
-                logger.info("[%s] Authenticating…", self.source)
                 await self.authenticate()
+
+            if not self._authenticated:
+                # Not configured / no credentials — skip quietly
+                return SyncResult(source=self.source, success=True, items_fetched=0)
 
             logger.info("[%s] Fetching data since %s", self.source, since.isoformat())
             raw_items = await self.fetch_raw(since)

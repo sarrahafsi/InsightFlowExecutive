@@ -13,7 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from core.database import get_db
-from core.models import AnomalyEvent
+from core.models import AnomalyEvent, User
+from core.security import get_current_user
 
 router = APIRouter(prefix="/anomaly", tags=["anomaly"])
 
@@ -26,11 +27,15 @@ def list_anomaly_events(
     source: str = "",
     severity: str = "",
     limit: int = 20,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Retourne les anomalies détectées, triées par sévérité puis date."""
     since = datetime.utcnow() - timedelta(days=since_days)
-    q = db.query(AnomalyEvent).filter(AnomalyEvent.detected_at >= since)
+    q = db.query(AnomalyEvent).filter(
+        AnomalyEvent.detected_at >= since,
+        AnomalyEvent.org_id == current_user.org_id,
+    )
 
     if source:
         q = q.filter(AnomalyEvent.source == source)
@@ -64,7 +69,10 @@ def list_anomaly_events(
 
 
 @router.get("/status")
-def anomaly_status(db: Session = Depends(get_db)):
+def anomaly_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """
     Indique pour chaque source si le warmup est terminé (≥7 jours de données).
     """
@@ -75,7 +83,10 @@ def anomaly_status(db: Session = Depends(get_db)):
     for source in SOURCES:
         oldest = (
             db.query(MessageRaw.timestamp)
-            .filter(MessageRaw.source == source)
+            .filter(
+                MessageRaw.source == source,
+                MessageRaw.org_id == current_user.org_id,
+            )
             .order_by(MessageRaw.timestamp.asc())
             .first()
         )
@@ -98,6 +109,7 @@ def anomaly_status(db: Session = Depends(get_db)):
 @router.post("/run")
 def run_detection_now(
     window_days: int = 14,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Déclenche une détection manuelle (sans passer par Celery)."""
@@ -105,14 +117,13 @@ def run_detection_now(
     from core.models import AnomalyEvent
 
     try:
-        anomalies = run_detection(db, user_id="default", window_days=window_days)
+        anomalies = run_detection(db, org_id=current_user.org_id, window_days=window_days)
 
-        # Delete today's events for the same sources before inserting new ones
-        from datetime import date
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         for a in anomalies:
             db.query(AnomalyEvent).filter(
                 AnomalyEvent.source == a["source"],
+                AnomalyEvent.org_id == current_user.org_id,
                 AnomalyEvent.detected_at >= today_start,
             ).delete()
 
@@ -128,9 +139,16 @@ def run_detection_now(
 
 
 @router.patch("/events/{event_id}/read")
-def mark_as_read(event_id: int, db: Session = Depends(get_db)):
+def mark_as_read(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Marquer une anomalie comme lue."""
-    event = db.query(AnomalyEvent).filter(AnomalyEvent.id == event_id).first()
+    event = db.query(AnomalyEvent).filter(
+        AnomalyEvent.id == event_id,
+        AnomalyEvent.org_id == current_user.org_id,
+    ).first()
     if not event:
         raise HTTPException(status_code=404, detail="Anomalie introuvable")
     event.is_read = True

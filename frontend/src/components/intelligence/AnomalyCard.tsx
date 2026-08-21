@@ -15,8 +15,20 @@ const SEVERITY_LABEL: Record<string, string> = {
 };
 
 const SOURCE_ICON: Record<string, string> = {
-  gmail: "✉️", jira: "📋", slack: "💬",
+  gmail: "✉️", jira: "📋", slack: "💬", teams: "💼", outlook: "📧",
 };
+
+const SOURCE_LABEL: Record<string, string> = {
+  gmail: "Gmail", jira: "Jira", slack: "Slack", teams: "Teams", outlook: "Outlook",
+};
+
+function timeAgo(iso: string): string {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60)   return "à l'instant";
+  if (diff < 3600) return `il y a ${Math.floor(diff / 60)} min`;
+  if (diff < 86400) return `il y a ${Math.floor(diff / 3600)}h`;
+  return `il y a ${Math.floor(diff / 86400)}j`;
+}
 
 interface AnomalyEvent {
   id: number;
@@ -64,7 +76,7 @@ export default function AnomalyCard() {
     setRunning(true);
     setMsg(null);
     try {
-      const r = await API.post("/api/anomaly/run");
+      const r = await API.post("/api/anomaly/run", {});
       setMsg(`${r.data.anomalies_detected} anomalie(s) détectée(s)`);
       load();
     } catch {
@@ -75,7 +87,7 @@ export default function AnomalyCard() {
   };
 
   const markRead = async (id: number) => {
-    await API.patch(`/api/anomaly/events/${id}/read`);
+    await API.patch(`/api/anomaly/events/${id}/read`, {});
     setEvents(prev => prev.map(e => e.id === id ? { ...e, is_read: true } : e));
   };
 
@@ -90,7 +102,7 @@ export default function AnomalyCard() {
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.25rem" }}>
         <div>
           <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.15em", color: "#748cab", fontWeight: 600, marginBottom: 4 }}>
-            Isolation Forest · Comportemental
+            Comportements inhabituels détectés
           </div>
           <h2 style={{ fontSize: 17, fontWeight: 700, color: "#0d1321", fontFamily: "DM Serif Display, serif", margin: 0 }}>
             Détection d'Anomalies
@@ -161,19 +173,21 @@ export default function AnomalyCard() {
               >
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                       <span>{SOURCE_ICON[e.source] ?? "◈"}</span>
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: `${color}20`, color }}>{SEVERITY_LABEL[e.severity] ?? e.severity}</span>
-                      <span style={{ fontSize: 11, color: "#748cab" }}>
-                        {new Date(e.detected_at).toLocaleDateString("fr-FR")}
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "#0d1321" }}>
+                        {SOURCE_LABEL[e.source] ?? e.source}
+                      </span>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: `${color}20`, color }}>
+                        {SEVERITY_LABEL[e.severity] ?? e.severity}
+                      </span>
+                      <span style={{ fontSize: 11, color: "#748cab", marginLeft: "auto" }}>
+                        {timeAgo(e.detected_at)}
                       </span>
                     </div>
-                    <p style={{ fontSize: 13, color: "#0d1321", margin: 0, lineHeight: 1.5 }}>
+                    <p style={{ fontSize: 13, color: "#0d1321", margin: 0, lineHeight: 1.6 }}>
                       {e.description}
                     </p>
-                    <div style={{ fontSize: 11, color: "#748cab", marginTop: 4 }}>
-                      Score IF : {e.anomaly_score} · {e.metric} : {e.current_value} vs normale {e.baseline_value}
-                    </div>
                   </div>
                   {!e.is_read && (
                     <button

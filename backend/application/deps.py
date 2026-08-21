@@ -1,11 +1,13 @@
 """
 Shared FastAPI dependencies — injected via Depends().
 """
+from fastapi import Depends
 from integrations.connectors import ConnectorManager, SourceType
-from core.store import item_store
+from core.store import item_store, OrgScopedItemStore
+from core.models import User
+from core.security import get_current_user
 
-# Single ConnectorManager instance — all connectors in mock mode by default.
-# Change use_mock=False and provide real credentials when ready.
+# Global ConnectorManager — used for background sync operations
 connector_manager = ConnectorManager(
     configs={
         SourceType.SLACK:   {"use_mock": False},
@@ -22,5 +24,6 @@ def get_manager() -> ConnectorManager:
     return connector_manager
 
 
-def get_store():
-    return item_store
+async def get_store(current_user: User = Depends(get_current_user)) -> OrgScopedItemStore:
+    """Returns a per-org store scoped to the authenticated user's organisation."""
+    return OrgScopedItemStore(current_user.org_id)

@@ -15,13 +15,16 @@ COLOR = "#0078D4"
 GRAPH_API = "https://graph.microsoft.com/v1.0"
 
 
-def _load_token() -> str | None:
+def _load_token(org_id: str | None = None) -> str | None:
     try:
         from core.database import SessionLocal
         from core.models import SourceConfig
         db = SessionLocal()
         try:
-            row = db.query(SourceConfig).filter(SourceConfig.source == "outlook").first()
+            q = db.query(SourceConfig).filter(SourceConfig.source == "outlook")
+            if org_id:
+                q = q.filter(SourceConfig.org_id == org_id)
+            row = q.first()
             if row:
                 cfg = row.config if isinstance(row.config, dict) else json.loads(row.config)
                 return cfg.get("access_token")
@@ -33,8 +36,7 @@ def _load_token() -> str | None:
 
 
 def _mock_events(start: datetime, end: datetime) -> list[CalendarEvent]:
-    # Anchor to Monday of the target week
-    monday = start - timedelta(days=start.weekday())
+    monday = start.replace(hour=0, minute=0, second=0, microsecond=0)
     events = [
         CalendarEvent(
             id="outlook_cal_001",
@@ -114,8 +116,8 @@ def _mock_events(start: datetime, end: datetime) -> list[CalendarEvent]:
     return [e for e in events if e.start >= start and e.start < end]
 
 
-async def fetch_outlook_calendar(start: datetime, end: datetime) -> list[CalendarEvent]:
-    token = _load_token()
+async def fetch_outlook_calendar(start: datetime, end: datetime, org_id: str | None = None) -> list[CalendarEvent]:
+    token = _load_token(org_id=org_id)
     if not token:
         logger.info("[OutlookCalendar] No token — returning mock events")
         return _mock_events(start, end)

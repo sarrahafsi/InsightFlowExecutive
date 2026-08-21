@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from core.database import get_db
-from core.models import ActionItem
+from core.models import ActionItem, User
+from core.security import get_current_user
 
 router = APIRouter(prefix="/actions", tags=["actions"])
 
@@ -26,9 +27,13 @@ class ActionUpdate(BaseModel):
 
 
 @router.get("")
-def list_actions(db: Session = Depends(get_db)):
+def list_actions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     rows = (
         db.query(ActionItem)
+        .filter(ActionItem.org_id == current_user.org_id)
         .order_by(ActionItem.done.asc(), ActionItem.created_at.desc())
         .limit(100)
         .all()
@@ -51,8 +56,13 @@ def list_actions(db: Session = Depends(get_db)):
 
 
 @router.post("", status_code=201)
-def create_action(body: ActionCreate, db: Session = Depends(get_db)):
+def create_action(
+    body: ActionCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     row = ActionItem(
+        org_id=current_user.org_id,
         message_id=body.message_id,
         title=body.title,
         author=body.author,
@@ -76,8 +86,16 @@ def create_action(body: ActionCreate, db: Session = Depends(get_db)):
 
 
 @router.patch("/{action_id}")
-def update_action(action_id: int, body: ActionUpdate, db: Session = Depends(get_db)):
-    row = db.query(ActionItem).filter(ActionItem.id == action_id).first()
+def update_action(
+    action_id: int,
+    body: ActionUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = db.query(ActionItem).filter(
+        ActionItem.id == action_id,
+        ActionItem.org_id == current_user.org_id,
+    ).first()
     if not row:
         raise HTTPException(status_code=404, detail="Action non trouvée")
 
@@ -104,8 +122,15 @@ def update_action(action_id: int, body: ActionUpdate, db: Session = Depends(get_
 
 
 @router.delete("/{action_id}", status_code=204)
-def delete_action(action_id: int, db: Session = Depends(get_db)):
-    row = db.query(ActionItem).filter(ActionItem.id == action_id).first()
+def delete_action(
+    action_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = db.query(ActionItem).filter(
+        ActionItem.id == action_id,
+        ActionItem.org_id == current_user.org_id,
+    ).first()
     if row:
         db.delete(row)
         db.commit()

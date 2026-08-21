@@ -1,7 +1,10 @@
 """
-SQLAlchemy ORM models — InsightFlow Executive
-Tables : messages_raw · action_items · human_corrections · source_configs
+SQLAlchemy ORM models — InsightFlow Executive (multi-tenant)
+Tables : organisations · users
+         messages_raw · action_items · human_corrections · source_configs
+         connector_catalog
          projects · project_members · project_sources · project_notes · project_files · project_activities
+         decision_log · anomaly_events
 """
 from __future__ import annotations
 
@@ -10,7 +13,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     BigInteger, Boolean, Column, Float, ForeignKey,
-    Integer, SmallInteger, String, Text, TIMESTAMP,
+    Integer, SmallInteger, String, Text, TIMESTAMP, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -20,10 +23,26 @@ class Base(DeclarativeBase):
     pass
 
 
+# ── Organisation (tenant = client) ────────────────────────────────────────────
+
+class Organisation(Base):
+    __tablename__ = "organisations"
+
+    id         = Column(String(36),  primary_key=True, default=lambda: str(uuid4()))
+    name       = Column(String(255), nullable=False)
+    plan       = Column(String(50),  default="free")   # free | pro | enterprise
+    created_at = Column(TIMESTAMP,   default=datetime.utcnow)
+
+    users       = relationship("User",         back_populates="organisation", passive_deletes=True)
+    projects    = relationship("Project",      back_populates="organisation", passive_deletes=True)
+    source_cfgs = relationship("SourceConfig", back_populates="organisation", passive_deletes=True)
+
+
 class MessageRaw(Base):
     __tablename__ = "messages_raw"
 
     id                  = Column(String(255),  primary_key=True)
+    org_id              = Column(String(36),   ForeignKey("organisations.id", ondelete="CASCADE"), nullable=True)
     source              = Column(String(50),   nullable=False)
     author              = Column(String(255))
     author_email        = Column(String(255))
@@ -67,6 +86,7 @@ class ActionItem(Base):
     __tablename__ = "action_items"
 
     id              = Column(Integer,      primary_key=True, autoincrement=True)
+    org_id          = Column(String(36),   ForeignKey("organisations.id", ondelete="CASCADE"), nullable=True)
     message_id      = Column(String(255),  ForeignKey("messages_raw.id", ondelete="SET NULL"), nullable=True)
     title           = Column(Text,         nullable=False)
     author          = Column(String(255))
@@ -84,6 +104,7 @@ class DecisionLog(Base):
     __tablename__ = "decision_log"
 
     id          = Column(Integer,     primary_key=True, autoincrement=True)
+    org_id      = Column(String(36),  ForeignKey("organisations.id", ondelete="CASCADE"), nullable=True)
     title       = Column(Text,        nullable=False)
     context     = Column(Text)
     status      = Column(String(20),  default="pending")   # pending | decided | cancelled
@@ -117,10 +138,31 @@ class HumanCorrection(Base):
 
 class SourceConfig(Base):
     __tablename__ = "source_configs"
+    __table_args__ = (UniqueConstraint("org_id", "source", name="uq_org_source"),)
 
-    source       = Column(String(50),  primary_key=True)
+    id           = Column(Integer,     primary_key=True, autoincrement=True)
+    org_id       = Column(String(36),  ForeignKey("organisations.id", ondelete="CASCADE"), nullable=True)
+    source       = Column(String(50),  nullable=False)
     config       = Column(JSONB,       nullable=False, default=dict)
     connected_at = Column(TIMESTAMP,   default=datetime.utcnow)
+
+    organisation = relationship("Organisation", back_populates="source_cfgs")
+
+
+# ── Connector Catalog (platform-level, managed by superadmin) ─────────────────
+
+class ConnectorCatalog(Base):
+    __tablename__ = "connector_catalog"
+
+    key         = Column(String(50),  primary_key=True)   # gmail | jira | slack ...
+    name        = Column(String(100), nullable=False)
+    icon        = Column(String(10),  default="◈")
+    color       = Column(String(7),   default="#748cab")
+    category    = Column(String(50),  default="Communication")
+    auth_type   = Column(String(30),  default="api_key")
+    description = Column(String(255))
+    enabled     = Column(Boolean,     default=True)
+    coming_soon = Column(Boolean,     default=False)
 
 
 # ── Projects ──────────────────────────────────────────────────────────────────
@@ -129,6 +171,7 @@ class Project(Base):
     __tablename__ = "projects"
 
     id          = Column(String(36),  primary_key=True, default=lambda: str(uuid4()))
+    org_id      = Column(String(36),  ForeignKey("organisations.id", ondelete="CASCADE"), nullable=True)
     name        = Column(String(255), nullable=False)
     description = Column(Text)
     color       = Column(String(7),   default="#3e5c76")
@@ -141,11 +184,12 @@ class Project(Base):
     created_at  = Column(TIMESTAMP,    default=datetime.utcnow)
     updated_at  = Column(TIMESTAMP,   default=datetime.utcnow)
 
-    members    = relationship("ProjectMember",   back_populates="project", cascade="all, delete-orphan")
-    sources    = relationship("ProjectSource",   back_populates="project", cascade="all, delete-orphan")
-    notes      = relationship("ProjectNote",     back_populates="project", cascade="all, delete-orphan")
-    files      = relationship("ProjectFile",     back_populates="project", cascade="all, delete-orphan")
-    activities = relationship("ProjectActivity", back_populates="project", cascade="all, delete-orphan")
+    organisation = relationship("Organisation", back_populates="projects")
+    members      = relationship("ProjectMember",   back_populates="project", cascade="all, delete-orphan")
+    sources      = relationship("ProjectSource",   back_populates="project", cascade="all, delete-orphan")
+    notes        = relationship("ProjectNote",     back_populates="project", cascade="all, delete-orphan")
+    files        = relationship("ProjectFile",     back_populates="project", cascade="all, delete-orphan")
+    activities   = relationship("ProjectActivity", back_populates="project", cascade="all, delete-orphan")
 
 
 class ProjectMember(Base):
@@ -216,11 +260,26 @@ class ProjectActivity(Base):
     project    = relationship("Project", back_populates="activities")
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id              = Column(Integer,     primary_key=True, autoincrement=True)
+    org_id          = Column(String(36),  ForeignKey("organisations.id", ondelete="SET NULL"), nullable=True)
+    email           = Column(String(255), nullable=False, unique=True)
+    full_name       = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    role            = Column(String(20),  default="pm")   # superadmin | ceo | pm
+    is_active       = Column(Boolean,     default=True)
+    created_at      = Column(TIMESTAMP,   default=datetime.utcnow)
+
+    organisation = relationship("Organisation", back_populates="users")
+
+
 class AnomalyEvent(Base):
     __tablename__ = "anomaly_events"
 
     id              = Column(Integer,     primary_key=True, autoincrement=True)
-    user_id         = Column(String(255), nullable=False, default="default")
+    org_id          = Column(String(36),  ForeignKey("organisations.id", ondelete="CASCADE"), nullable=True)
     source          = Column(String(50),  nullable=False)   # gmail | jira | slack | all
     metric          = Column(String(100), nullable=False)   # nb_messages | nb_blocked | nb_night_msgs ...
     current_value   = Column(Float,       nullable=False)

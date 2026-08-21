@@ -4,27 +4,32 @@ LLM_PROVIDER=ollama → Ollama local (défaut)
 LLM_PROVIDER=azure  → GPT-4o + MCP tools (dynamique)
 """
 from datetime import datetime, timedelta
-from fastapi import APIRouter
-from application.deps import item_store
+from fastapi import APIRouter, Depends
+from core.models import User
+from core.security import get_current_user
+from core.store import OrgScopedItemStore
 from data.analytics.engine import compute_overview
 from intelligence.llm.client import complete, get_provider_info
 
 router = APIRouter(prefix="/brief", tags=["brief"])
 
-BRIEF_SYSTEM = """Tu es l'assistant IA personnel d'un CEO d'entreprise.
+BRIEF_SYSTEM_FR = """Tu es l'assistant IA personnel d'un CEO d'entreprise.
 Ta tâche est de rédiger un brief exécutif hebdomadaire concis et perspicace en français.
 Adopte un ton professionnel et direct — comme un conseiller de confiance qui parle à un CEO.
 Concentre-toi sur ce qui compte : risques, décisions nécessaires, signaux positifs, signaux équipe.
-Structure : 3-4 paragraphes courts. Pas de listes à puces. Pas d'en-têtes markdown. Prose claire.
+Structure : 3-4 paragraphes courts. Prose claire et fluide. Pas de listes à puces. Pas d'en-têtes.
+Mise en forme : utilise **gras** pour mettre en valeur les chiffres clés, les noms de sources importantes, les alertes critiques et les mots d'action essentiels.
 Termine par une recommandation concrète pour la semaine.
 IMPORTANT : Tu DOIS rédiger le brief directement avec les données fournies. Ne pose aucune question. Ne demande pas de confirmation. Génère le texte immédiatement."""
 
-BRIEF_SYSTEM_MCP = """Tu es l'assistant IA personnel d'un CEO d'entreprise.
-Ta tâche est de rédiger un brief exécutif hebdomadaire en français.
-Tu as accès à des outils pour récupérer les données réelles de la semaine.
-Utilise les outils disponibles pour collecter : analytics, emails urgents, risques, burnout.
-Ensuite rédige un brief concis en 3-4 paragraphes. Prose claire, pas de listes ni markdown.
-Termine par une recommandation concrète. Si une donnée manque, ne l'invente pas."""
+BRIEF_SYSTEM_EN = """You are the personal AI assistant of a company CEO.
+Your task is to write a concise and insightful weekly executive brief in English.
+Adopt a professional and direct tone — like a trusted advisor speaking to a CEO.
+Focus on what matters: risks, required decisions, positive signals, team signals.
+Structure: 3-4 short paragraphs. Clear flowing prose. No bullet points. No headers.
+Formatting: use **bold** to highlight key figures, important source names, critical alerts, and essential action words.
+End with a concrete recommendation for the week.
+IMPORTANT: You MUST write the brief directly using the provided data. Do not ask questions. Do not ask for confirmation. Generate the text immediately."""
 
 
 def _build_brief_prompt(stats: dict, period: str) -> str:
@@ -64,18 +69,23 @@ Rédige maintenant le brief exécutif hebdomadaire."""
 
 
 @router.get("/weekly")
-async def weekly_brief(since_days: int = 7):
-    """Génère un brief narratif de la semaine."""
-    now    = datetime.utcnow()
-    # Brief always covers 7 days regardless of dashboard filter — needs enough data for narrative
+async def weekly_brief(
+    since_days: int = 7,
+    lang: str = "fr",
+    current_user: User = Depends(get_current_user),
+):
+    """Génère un brief narratif de la semaine — données scoped à l'org du CEO."""
+    now        = datetime.utcnow()
     brief_days = max(since_days, 7)
-    period = f"{(now - timedelta(days=brief_days)).strftime('%d/%m')} – {now.strftime('%d/%m/%Y')}"
-    stats  = compute_overview(item_store, since_days=brief_days)
+    period     = f"{(now - timedelta(days=brief_days)).strftime('%d/%m')} – {now.strftime('%d/%m/%Y')}"
 
-    # Tous les providers utilisent les stats pré-calculées — plus fiable que les MCP tools
+    store = OrgScopedItemStore(current_user.org_id)
+    stats = compute_overview(store, since_days=brief_days)
+
+    system = BRIEF_SYSTEM_EN if lang == "en" else BRIEF_SYSTEM_FR
     prompt     = _build_brief_prompt(stats, period)
     brief_text = await complete(
-        system=BRIEF_SYSTEM,
+        system=system,
         user=prompt,
         use_tools=False,
         temperature=0.4,
