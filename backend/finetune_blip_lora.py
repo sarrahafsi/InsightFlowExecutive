@@ -36,7 +36,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from transformers import BlipProcessor, BlipForConditionalGeneration
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, PeftModel
 
 
 class CaptionDataset(Dataset):
@@ -73,21 +73,25 @@ def make_collate_fn(processor):
     return collate
 
 
-def build_model(lora_r: int, lora_alpha: int, lora_dropout: float):
+def build_model(lora_r: int, lora_alpha: int, lora_dropout: float, resume_from: str | None = None):
     processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
     model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
 
     for p in model.parameters():
         p.requires_grad = False
 
-    lora_config = LoraConfig(
-        r=lora_r,
-        lora_alpha=lora_alpha,
-        lora_dropout=lora_dropout,
-        target_modules=["query", "value"],  # ne matche que text_decoder.*.attention.self.{query,value}
-        bias="none",
-    )
-    model = get_peft_model(model, lora_config)
+    if resume_from:
+        print(f"[INFO] reprise depuis le checkpoint LoRA existant : {resume_from}")
+        model = PeftModel.from_pretrained(model, resume_from, is_trainable=True)
+    else:
+        lora_config = LoraConfig(
+            r=lora_r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            target_modules=["query", "value"],  # ne matche que text_decoder.*.attention.self.{query,value}
+            bias="none",
+        )
+        model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
     return processor, model
 
@@ -122,6 +126,8 @@ def main():
     parser.add_argument("--lora_alpha", type=int, default=16)
     parser.add_argument("--lora_dropout", type=float, default=0.05)
     parser.add_argument("--patience", type=int, default=2, help="early stopping patience (epochs without val improvement)")
+    parser.add_argument("--resume_from", type=str, default=None,
+                         help="chemin vers un checkpoint LoRA existant (ex: blip_insightflow_lora/best) pour continuer l'entrainement au lieu de repartir de zero")
     parser.add_argument("--max_train", type=int, default=None, help="debug: cap train set size")
     parser.add_argument("--max_val", type=int, default=None, help="debug: cap val set size")
     parser.add_argument("--seed", type=int, default=42)
@@ -139,7 +145,7 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] device = {device}")
 
-    processor, model = build_model(args.lora_r, args.lora_alpha, args.lora_dropout)
+    processor, model = build_model(args.lora_r, args.lora_alpha, args.lora_dropout, args.resume_from)
     model.to(device)
 
     train_ds = CaptionDataset(manifest_path, images_root, "train", limit=args.max_train)
@@ -155,12 +161,27 @@ def main():
     best_val_loss = float("inf")
     patience_counter = 0
     history = []
+    start_epoch = 1
 
-    for epoch in range(1, args.epochs + 1):
+    history_path = output_dir / "training_history.json"
+    if args.resume_from and history_path.exists():
+        with open(history_path, encoding="utf-8") as f:
+            history = json.load(f)
+        if history:
+            best_val_loss = min(h["val_loss"] for h in history)
+            start_epoch = history[-1]["epoch"] + 1
+            print(f"[INFO] historique repris : {len(history)} epochs precedents, "
+                  f"meilleur val_loss={best_val_loss:.4f}, reprise a l'epoch {start_epoch}")
+
+    for epoch in range(start_epoch, start_epoch + args.epochs):
         train_loss = run_epoch(model, train_loader, device, optimizer)
         val_loss = run_epoch(model, val_loader, device, optimizer=None)
         history.append({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
         print(f"[EPOCH {epoch}] train_loss={train_loss:.4f}  val_loss={val_loss:.4f}")
+
+        model.save_pretrained(output_dir / f"epoch_{epoch}")
+        print(f"[INFO] checkpoint de l'epoch {epoch} sauvegarde dans {output_dir / f'epoch_{epoch}'} "
+              f"(garde pour pouvoir comparer plusieurs epochs sur Phase 0, le val_loss seul ne suffit pas)")
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -174,7 +195,7 @@ def main():
                 print("[INFO] early stopping.")
                 break
 
-    with open(output_dir / "training_history.json", "w", encoding="utf-8") as f:
+    with open(history_path, "w", encoding="utf-8") as f:
         json.dump(history, f, indent=2)
     print(f"[OK] termine. Meilleur val_loss={best_val_loss:.4f}. Checkpoint LoRA dans {output_dir / 'best'}")
 
