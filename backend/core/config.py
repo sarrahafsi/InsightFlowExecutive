@@ -8,6 +8,12 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://postgres:postgres@localhost:5432/insightflow"
 
+    # Analyse d'images (captures d'ecran pro) - OCR (Tesseract) + Vision (BLIP-base)
+    # Retenus par benchmark Phase 0 (backend/BENCHMARK_RESULTS.md)
+    tesseract_cmd_path: str = r"C:\Users\lenovo\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
+    vision_model_name: str = "Salesforce/blip-image-captioning-base"
+    vision_device: str = "cpu"
+
     slack_bot_token: str = ""
 
     jira_base_url: str = ""
