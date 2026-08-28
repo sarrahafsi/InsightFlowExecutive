@@ -24,6 +24,19 @@ class BaseConnector(ABC):
         self.config = config
         self._authenticated = False
 
+    def scoped_id(self, raw_id: str) -> str:
+        """
+        Build a DataItem id unique per (source, raw_id, org).
+
+        Without the org component, two different orgs syncing the same external
+        account (e.g. two InsightFlow orgs both connecting the same Gmail mailbox)
+        would collide on the same MessageRaw primary key — load_items() would
+        silently reassign that row's org_id to whichever org synced last,
+        stealing the message from the other org instead of storing two rows.
+        """
+        org_id = self.config.get("org_id")
+        return f"{self.source.value}_{raw_id}_{org_id}" if org_id else f"{self.source.value}_{raw_id}"
+
     # ------------------------------------------------------------------
     # Abstract interface — every connector must implement these three
     # ------------------------------------------------------------------
@@ -74,6 +87,16 @@ class BaseConnector(ABC):
                     items.append(self.normalize(raw))
                 except Exception as e:
                     logger.warning("[%s] Failed to normalize item: %s", self.source, e)
+
+            # Point unique d'enrichissement image, partage par tous les connecteurs
+            # (present et futurs) — cf. intelligence/nlp/image_processor.py pour la
+            # convention (raw["_pending_image_bytes"]). Ne pas dupliquer l'appel a
+            # process_image_bytes_async() dans chaque connecteur individuellement.
+            try:
+                from intelligence.nlp.image_processor import enrich_data_items_with_images
+                await enrich_data_items_with_images(items)
+            except Exception as e:
+                logger.warning("[%s] Image enrichment failed: %s", self.source, e)
 
             logger.info("[%s] Synced %d items", self.source, len(items))
             return SyncResult(

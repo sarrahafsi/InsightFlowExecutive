@@ -153,7 +153,7 @@ class SlackConnector(BaseConnector):
             messages.extend(channel_msgs)
 
         await self._transcribe_voice_messages(messages)
-        await self._process_images(messages)
+        await self._download_images(messages)
 
         logger.info("[Slack] %d messages récupérés depuis %d canaux.", len(messages), len(channel_ids))
         return messages
@@ -175,16 +175,18 @@ class SlackConnector(BaseConnector):
                 logger.warning("[Slack] Transcription échouée pour un message vocal (channel=%s)",
                                 msg.get("channel"))
 
-    async def _process_images(self, messages: list[dict[str, Any]]) -> None:
-        """Télécharge + analyse les images (OCR+Vision+fusion — mutate en place :
-        `_image_content`). Même pattern que _transcribe_voice_messages."""
+    async def _download_images(self, messages: list[dict[str, Any]]) -> None:
+        """Télécharge les images en pièce jointe (mutate en place :
+        `_pending_image_bytes`) — le téléchargement est forcément spécifique à
+        Slack (auth par token Bearer), mais l'analyse (OCR+Vision+fusion) ne
+        l'est pas : elle est centralisée dans BaseConnector.sync() pour tous
+        les connecteurs, pas dupliquée ici (cf. image_processor.py)."""
         import httpx
-        from intelligence.nlp.image_processor import process_image_bytes_async
 
         token = self._get_token()
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             for msg in messages:
-                if not msg.get("_is_image") or not msg.get("_image_url"):
+                if not msg.get("_image_url"):
                     continue
                 try:
                     resp = await client.get(
@@ -194,11 +196,9 @@ class SlackConnector(BaseConnector):
                         logger.warning("[Slack] Téléchargement image échoué (%s) pour channel=%s",
                                         resp.status_code, msg.get("channel"))
                         continue
-                    result = await process_image_bytes_async(resp.content)
-                    if result.get("content"):
-                        msg["_image_content"] = result["content"]
+                    msg["_pending_image_bytes"] = resp.content
                 except Exception as e:
-                    logger.warning("[Slack] Analyse image échouée (channel=%s) : %s",
+                    logger.warning("[Slack] Téléchargement image échoué (channel=%s) : %s",
                                     msg.get("channel"), e)
 
     def _list_public_channels(self, client) -> list[str]:
@@ -266,7 +266,6 @@ class SlackConnector(BaseConnector):
                     msg["_is_voice"] = True
                     msg["_audio_url"] = audio_file.get("url_private_download")
                 if image_file:
-                    msg["_is_image"] = True
                     msg["_image_url"] = image_file.get("url_private_download")
                 if not audio_file and not image_file and not msg.get("text", "").strip():
                     continue
@@ -311,19 +310,12 @@ class SlackConnector(BaseConnector):
         timestamp = datetime.utcfromtimestamp(ts_float)
         channel_name = raw.get("channel_name", raw.get("channel", "unknown"))
 
+        # L'enrichissement image (contenu, tag "image", metadata.is_image) est
+        # applique apres coup par BaseConnector.sync() (enrich_data_items_with_images),
+        # pas ici — voir intelligence/nlp/image_processor.py.
         is_voice = raw.get("_is_voice", False)
-        is_image = raw.get("_is_image", False)
-        image_content = raw.get("_image_content")
-        base_text = raw.get("text", "")
-
-        if is_voice:
-            content = raw.get("_voice_transcript") or base_text
-        elif is_image and image_content:
-            content = f"{base_text}\n\n[Image] {image_content}" if base_text.strip() else f"[Image] {image_content}"
-        else:
-            content = base_text
-
-        tags = [channel_name] + (["voice"] if is_voice else []) + (["image"] if is_image else [])
+        content = raw.get("_voice_transcript") or raw.get("text", "") if is_voice else raw.get("text", "")
+        tags = [channel_name] + (["voice"] if is_voice else [])
 
         return DataItem(
             id=self.scoped_id(f"{raw['ts']}_{raw.get('channel', '')}"),
@@ -341,7 +333,6 @@ class SlackConnector(BaseConnector):
                 "user_id":      raw.get("user"),
                 "thread_ts":    raw.get("thread_ts"),
                 "is_voice":     is_voice,
-                "is_image":     is_image,
             },
             raw=raw,
         )

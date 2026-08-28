@@ -188,3 +188,40 @@ async def process_image_bytes_async(image_bytes: bytes, suffix: str = ".img") ->
             except OSError:
                 pass
 
+
+async def enrich_data_items_with_images(items: list) -> None:
+    """Point de centralisation UNIQUE, appele une seule fois pour TOUS les
+    connecteurs (depuis BaseConnector.sync(), pas depuis chaque connecteur) —
+    exactement comme le pipeline NLP texte est centralise dans
+    data/etl/loader.py plutot que reimplemente par connecteur.
+
+    Convention : un connecteur qui detecte une piece jointe image n'a qu'une
+    seule chose a faire pendant fetch_raw() — telecharger les bytes et les
+    stocker dans raw["_pending_image_bytes"]. Tout le reste (OCR, Vision,
+    fusion LLM, fusion dans content, tag "image", metadata.is_image) est geré
+    ici, une seule fois — un nouveau connecteur futur en beneficie
+    automatiquement des qu'il respecte cette convention, sans avoir a
+    reimplementer l'analyse elle-meme.
+
+    Mute les DataItem en place. Ne leve jamais d'exception (une image qui
+    echoue ne doit jamais faire echouer toute la synchronisation)."""
+    for item in items:
+        image_bytes = (item.raw or {}).get("_pending_image_bytes")
+        if not image_bytes:
+            continue
+        try:
+            result = await process_image_bytes_async(image_bytes)
+        except Exception as e:
+            logger.warning("[NLP/ImageProcessor] Enrichissement de %s echoue: %s", item.id, e)
+            continue
+
+        image_text = result.get("content")
+        if not image_text:
+            continue
+
+        item.content = (f"{item.content}\n\n[Image] {image_text}"
+                         if (item.content or "").strip() else f"[Image] {image_text}")
+        if "image" not in (item.tags or []):
+            item.tags = (item.tags or []) + ["image"]
+        item.metadata = {**(item.metadata or {}), "is_image": True}
+
