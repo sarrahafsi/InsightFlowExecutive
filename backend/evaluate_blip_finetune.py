@@ -57,7 +57,7 @@ def load_models(adapter_dir: str):
 def infer(model, processor, image_path: Path) -> str:
     image = Image.open(image_path).convert("RGB")
     inputs = processor(image, return_tensors="pt").to(DEVICE)
-    out = model.generate(**inputs, max_new_tokens=50, no_repeat_ngram_size=3)
+    out = model.generate(**inputs, max_new_tokens=40, num_beams=4, no_repeat_ngram_size=3)
     return processor.decode(out[0], skip_special_tokens=True).strip()
 
 
