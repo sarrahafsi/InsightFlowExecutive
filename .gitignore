@@ -60,10 +60,16 @@ Thumbs.db
 ngrok.exe
 *_explication.html
 ml_complet_explication.html
-backend/benchmark_*.py
-backend/benchmark_images/
-backend/benchmark_results*.csv
 ml/benchmark_voice.py
 backend/check_*.py
 backend/diag.py
 backend/fix_org.py
+
+# Vision fine-tuning — dataset généré (régénérable via finetune_dataset_generator.py,
+# ne pas polluer l'historique git avec des milliers de PNG à chaque régénération)
+backend/finetune_dataset/
+backend/*.zip
+backend/blip_insightflow_lora/
+backend/eval_results/
+# Pilote externe ChatGPT (référence de comparaison, pas un livrable du projet)
+backend/insightflow_vision_pilot/

@@ -1,0 +1,10 @@
+pair,spearman_rho,interpretation
+BLEU <-> Human,-0.2663,negative (misleading)
+ROUGE-L <-> Human,-0.1857,negative (misleading)
+METEOR <-> Human,-0.157,negative (misleading)
+CLIP <-> Human,0.7308,forte
+
+model,avg_human_score_new_categories
+BLIP-base,2.40
+GIT-base,1.47
+ViT-GPT2,1.00

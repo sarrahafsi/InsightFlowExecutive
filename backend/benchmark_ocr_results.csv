@@ -1,0 +1,52 @@
+engine,image,extracted_text,reference,load_sec,inference_sec,word_accuracy,cer,approx_size_mb,error
+EasyOCR,ocr_error_msg,Deployment failed. Database connection timeout: Critical error code 503.,Deployment failed. Database connection timeout. Critical error code 503.,11.31,1.39,0.8889,0.0139,65,
+EasyOCR,ocr_dashboard_kpi,Monthly Revenue 145K EUR Target 150K EUR Status On Track,Monthly Revenue 145K EUR Target 150K EUR Status On Track,11.31,1.07,1.0,0.0,65,
+EasyOCR,ocr_ticket_field,SCRUM-231 API rate limiting fails under load Status In Progress Priority High,SCRUM-231 API rate limiting fails under load Status In Progress Priority High,11.31,1.18,1.0,0.0,65,
+EasyOCR,ocr_chat_message,Sarah Hafsi Sprint review moved to 3pm everyone ok Karim Haddad Works for me,Sarah Hafsi Sprint review moved to 3pm everyone ok Karim Haddad Works for me,11.31,1.19,1.0,0.0,65,
+EasyOCR,ocr_paragraph,The application has encountered an unexpected error and needs to close. Please contact support if this issue persists,The application has encountered an unexpected error and needs to close. Please contact support if this issue persists.,11.31,1.48,0.9444,0.0085,65,
+EasyOCR,ocr_small_caps,URGENT ACTION REQUIRED BEFORE FRIDAY DEADLINE APPROVE BUDGET NOW,URGENT ACTION REQUIRED BEFORE FRIDAY DEADLINE APPROVE BUDGET NOW,11.31,1.22,1.0,0.0,65,
+EasyOCR,ocr_stack_trace,Traceback most recent call last File sync_worker:py line 42 in run ConnectionTimeoutError could not connect to database,Traceback most recent call last File sync_worker.py line 42 in run ConnectionTimeoutError could not connect to database,11.31,2.06,0.9412,0.0084,65,
+EasyOCR,ocr_mixed_case,Invoice INV-2024-0091 Total Due 4250.00 EUR Payment Status Overdue,Invoice INV-2024-0091 Total Due 4250.00 EUR Payment Status Overdue,11.31,1.37,1.0,0.0,65,
+Tesseract,ocr_error_msg,"Deployment failed. Database connection timeout.
+Critical error code 503.
+",Deployment failed. Database connection timeout. Critical error code 503.,0.78,0.32,1.0,0.0,15,
+Tesseract,ocr_dashboard_kpi,"Monthly Revenue 145K EUR Target 150K EUR Status
+On Track
+",Monthly Revenue 145K EUR Target 150K EUR Status On Track,0.78,0.29,1.0,0.0,15,
+Tesseract,ocr_ticket_field,"SCRUM-231 API rate limiting fails under load
+Status In Progress Priority High
+",SCRUM-231 API rate limiting fails under load Status In Progress Priority High,0.78,0.33,1.0,0.0,15,
+Tesseract,ocr_chat_message,"Sarah Hafsi Sprint review moved to 3pm everyone
+ok Karim Haddad Works for me
+",Sarah Hafsi Sprint review moved to 3pm everyone ok Karim Haddad Works for me,0.78,0.44,1.0,0.0,15,
+Tesseract,ocr_paragraph,"The application has encountered an unexpected
+error and needs to close. Please contact support
+if this issue persists.
+",The application has encountered an unexpected error and needs to close. Please contact support if this issue persists.,0.78,0.34,1.0,0.0,15,
+Tesseract,ocr_small_caps,"URGENT ACTION REQUIRED BEFORE FRIDAY DEADLINE
+APPROVE BUDGET NOW
+",URGENT ACTION REQUIRED BEFORE FRIDAY DEADLINE APPROVE BUDGET NOW,0.78,0.34,1.0,0.0,15,
+Tesseract,ocr_stack_trace,"Traceback most recent call last File
+sync_worker.py line 42 in run
+ConnectionTimeoutError could not connect to
+database
+",Traceback most recent call last File sync_worker.py line 42 in run ConnectionTimeoutError could not connect to database,0.78,0.37,1.0,0.0,15,
+Tesseract,ocr_mixed_case,"Invoice INV-2024-0091 Total Due 4250.00 EUR
+Payment Status Overdue
+",Invoice INV-2024-0091 Total Due 4250.00 EUR Payment Status Overdue,0.78,0.34,1.0,0.0,15,
+PaddleOCR,ocr_error_msg,,Deployment failed. Database connection timeout. Critical error code 503.,13.42,-1,-1,-1,45,"(Unimplemented) ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]  (at ..\paddle\fluid\framework\new_executor\instruction\onednn\onednn_instruction.cc:118)
+"
+PaddleOCR,ocr_dashboard_kpi,,Monthly Revenue 145K EUR Target 150K EUR Status On Track,13.42,-1,-1,-1,45,"(Unimplemented) ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]  (at ..\paddle\fluid\framework\new_executor\instruction\onednn\onednn_instruction.cc:118)
+"
+PaddleOCR,ocr_ticket_field,,SCRUM-231 API rate limiting fails under load Status In Progress Priority High,13.42,-1,-1,-1,45,"(Unimplemented) ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]  (at ..\paddle\fluid\framework\new_executor\instruction\onednn\onednn_instruction.cc:118)
+"
+PaddleOCR,ocr_chat_message,,Sarah Hafsi Sprint review moved to 3pm everyone ok Karim Haddad Works for me,13.42,-1,-1,-1,45,"(Unimplemented) ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]  (at ..\paddle\fluid\framework\new_executor\instruction\onednn\onednn_instruction.cc:118)
+"
+PaddleOCR,ocr_paragraph,,The application has encountered an unexpected error and needs to close. Please contact support if this issue persists.,13.42,-1,-1,-1,45,"(Unimplemented) ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]  (at ..\paddle\fluid\framework\new_executor\instruction\onednn\onednn_instruction.cc:118)
+"
+PaddleOCR,ocr_small_caps,,URGENT ACTION REQUIRED BEFORE FRIDAY DEADLINE APPROVE BUDGET NOW,13.42,-1,-1,-1,45,"(Unimplemented) ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]  (at ..\paddle\fluid\framework\new_executor\instruction\onednn\onednn_instruction.cc:118)
+"
+PaddleOCR,ocr_stack_trace,,Traceback most recent call last File sync_worker.py line 42 in run ConnectionTimeoutError could not connect to database,13.42,-1,-1,-1,45,"(Unimplemented) ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]  (at ..\paddle\fluid\framework\new_executor\instruction\onednn\onednn_instruction.cc:118)
+"
+PaddleOCR,ocr_mixed_case,,Invoice INV-2024-0091 Total Due 4250.00 EUR Payment Status Overdue,13.42,-1,-1,-1,45,"(Unimplemented) ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]  (at ..\paddle\fluid\framework\new_executor\instruction\onednn\onednn_instruction.cc:118)
+"
