@@ -136,9 +136,35 @@ class JiraConnector(BaseConnector):
                         filtered.append(issue)
 
                 logger.info("[Jira] %d issues pour le projet %s", len(filtered), project_key)
+                await self._download_images(client, filtered, email, api_token)
                 all_issues.extend(filtered)
 
         return all_issues
+
+    async def _download_images(self, client, issues: list[dict], email: str, api_token: str) -> None:
+        """Télécharge les images en pièce jointe (mutate en place :
+        `_pending_image_bytes`) — l'analyse elle-même est centralisée dans
+        BaseConnector.sync() (cf. intelligence/nlp/image_processor.py), pas
+        dupliquée ici."""
+        for issue in issues:
+            attachments = issue.get("fields", {}).get("attachment", []) or []
+            image_att = next(
+                (a for a in attachments if str(a.get("mimeType", "")).startswith("image/")),
+                None,
+            )
+            if not image_att:
+                continue
+            try:
+                resp = await client.get(
+                    image_att["content"], auth=(email, api_token), headers={"Accept": "*/*"},
+                )
+                if resp.status_code == 200:
+                    issue["_pending_image_bytes"] = resp.content
+                else:
+                    logger.warning("[Jira] Téléchargement image échoué (%s) pour %s",
+                                    resp.status_code, issue.get("key"))
+            except Exception as e:
+                logger.warning("[Jira] Téléchargement image échoué (%s) : %s", issue.get("key"), e)
 
     async def _fetch_sprint_story_points(self, client, base_url, email, api_token, board_id, max_results) -> dict:
         """Fetch story points from all sprints (active + closed)."""
@@ -188,7 +214,7 @@ class JiraConnector(BaseConnector):
         issues: list[dict] = []
         start_at = 0
         batch_size = min(max_results, 100)
-        fields = "summary,description,status,priority,assignee,reporter,created,updated,labels,issuetype,customfield_10016"
+        fields = "summary,description,status,priority,assignee,reporter,created,updated,labels,issuetype,customfield_10016,attachment"
 
         while len(issues) < max_results:
             try:
@@ -270,7 +296,7 @@ class JiraConnector(BaseConnector):
             content += f" | Labels: {', '.join(labels)}"
 
         return DataItem(
-            id=f"jira_{key}",
+            id=self.scoped_id(key),
             source=SourceType.JIRA,
             type=ItemType.TICKET,
             title=f"[{key}] {summary}",

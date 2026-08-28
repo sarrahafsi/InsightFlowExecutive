@@ -117,36 +117,44 @@ MOCK_EMAILS = [
 class OutlookConnector(BaseConnector):
 
     def _load_token_from_db(self) -> dict | None:
+        org_id = self.config.get("org_id")
         try:
             from core.database import SessionLocal
             from core.models import SourceConfig
             db = SessionLocal()
             try:
-                row = db.query(SourceConfig).filter(SourceConfig.source == "outlook").first()
+                q = db.query(SourceConfig).filter(SourceConfig.source == "outlook")
+                if org_id is not None:
+                    q = q.filter(SourceConfig.org_id == org_id)
+                row = q.first()
                 if row:
                     return row.config if isinstance(row.config, dict) else json.loads(row.config)
             finally:
                 db.close()
         except Exception as e:
-            logger.warning("[Outlook] Cannot load token from DB: %s", e)
+            logger.warning("[Outlook] Cannot load token from DB (org=%s): %s", org_id, e)
         return None
 
     def _save_token_to_db(self, token_data: dict) -> None:
+        org_id = self.config.get("org_id")
         try:
             from core.database import SessionLocal
             from core.models import SourceConfig
             db = SessionLocal()
             try:
-                row = db.query(SourceConfig).filter(SourceConfig.source == "outlook").first()
+                q = db.query(SourceConfig).filter(SourceConfig.source == "outlook")
+                if org_id is not None:
+                    q = q.filter(SourceConfig.org_id == org_id)
+                row = q.first()
                 if row:
                     row.config = token_data
                 else:
-                    db.add(SourceConfig(source="outlook", config=token_data))
+                    db.add(SourceConfig(org_id=org_id, source="outlook", config=token_data))
                 db.commit()
             finally:
                 db.close()
         except Exception as e:
-            logger.warning("[Outlook] Cannot save token to DB: %s", e)
+            logger.warning("[Outlook] Cannot save token to DB (org=%s): %s", org_id, e)
 
     async def _refresh_token(self, refresh_token: str) -> str | None:
         from core.config import settings
@@ -236,7 +244,40 @@ class OutlookConnector(BaseConnector):
         except Exception as e:
             logger.warning("[Outlook] Fetch error: %s", e)
 
+        await self._download_images(emails, headers)
         return emails
+
+    async def _download_images(self, emails: list[dict], headers: dict) -> None:
+        """Récupère les images en pièce jointe (mutate en place :
+        `_pending_image_bytes`) pour les emails qui en ont — un appel Graph
+        API supplémentaire par email avec pièce jointe. L'analyse elle-même
+        est centralisée dans BaseConnector.sync() (cf. image_processor.py),
+        pas dupliquée ici. Graph renvoie le contenu des fileAttachment
+        directement en base64 (`contentBytes`), pas besoin d'un second
+        téléchargement."""
+        import base64
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for email in emails:
+                if not email.get("hasAttachments"):
+                    continue
+                try:
+                    r = await client.get(
+                        f"{GRAPH_API}/me/messages/{email['id']}/attachments", headers=headers,
+                    )
+                    if r.status_code != 200:
+                        logger.warning("[Outlook] Récupération pièces jointes échouée (%s) pour %s",
+                                        r.status_code, email.get("id"))
+                        continue
+                    for att in r.json().get("value", []):
+                        content_type = str(att.get("contentType", "")).lower()
+                        content_bytes_b64 = att.get("contentBytes")
+                        if content_type.startswith("image/") and content_bytes_b64:
+                            email["_pending_image_bytes"] = base64.b64decode(content_bytes_b64)
+                            break
+                except Exception as e:
+                    logger.warning("[Outlook] Récupération pièces jointes échouée (id=%s) : %s",
+                                    email.get("id"), e)
 
     def normalize(self, raw: dict[str, Any]) -> DataItem:
         from_obj  = (raw.get("from") or {}).get("emailAddress") or {}
@@ -269,7 +310,7 @@ class OutlookConnector(BaseConnector):
         ]
 
         return DataItem(
-            id=f"outlook_{raw['id']}",
+            id=self.scoped_id(raw['id']),
             source=SourceType.OUTLOOK,
             type=ItemType.EMAIL,
             title=raw.get("subject") or "(sans objet)",

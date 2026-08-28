@@ -135,6 +135,21 @@ MOCK_MESSAGES = [
         "importance": "normal",
         "webUrl": "",
     },
+    {
+        "id": "teams_msg_009",
+        "createdDateTime": (datetime.utcnow() - timedelta(hours=6)).isoformat() + "Z",
+        "from": {"user": {"displayName": "Karim Haddad"}},
+        "body": {"content": "", "contentType": "text"},
+        "team_name": "Business Dev",
+        "channel_name": "deals",
+        "team_id": "team_bd",
+        "channel_id": "chan_deals",
+        "subject": "Message vocal — relance TechCorp",
+        "importance": "high",
+        "webUrl": "",
+        "_is_voice": True,
+        "_voice_transcript": "Salut, je viens d'avoir TechCorp au téléphone, ils veulent avancer le kick-off d'une semaine, il faut qu'on valide ça avec l'équipe technique avant vendredi sinon on risque de perdre le créneau.",
+    },
 ]
 
 
@@ -144,36 +159,44 @@ class TeamsConnector(BaseConnector):
     _token_cache: str | None = None
 
     def _load_token_from_db(self) -> dict | None:
+        org_id = self.config.get("org_id")
         try:
             from core.database import SessionLocal
             from core.models import SourceConfig
             db = SessionLocal()
             try:
-                row = db.query(SourceConfig).filter(SourceConfig.source == "teams").first()
+                q = db.query(SourceConfig).filter(SourceConfig.source == "teams")
+                if org_id is not None:
+                    q = q.filter(SourceConfig.org_id == org_id)
+                row = q.first()
                 if row:
                     return row.config if isinstance(row.config, dict) else json.loads(row.config)
             finally:
                 db.close()
         except Exception as e:
-            logger.warning("[Teams] Cannot load token from DB: %s", e)
+            logger.warning("[Teams] Cannot load token from DB (org=%s): %s", org_id, e)
         return None
 
     def _save_token_to_db(self, token_data: dict) -> None:
+        org_id = self.config.get("org_id")
         try:
             from core.database import SessionLocal
             from core.models import SourceConfig
             db = SessionLocal()
             try:
-                row = db.query(SourceConfig).filter(SourceConfig.source == "teams").first()
+                q = db.query(SourceConfig).filter(SourceConfig.source == "teams")
+                if org_id is not None:
+                    q = q.filter(SourceConfig.org_id == org_id)
+                row = q.first()
                 if row:
                     row.config = token_data
                 else:
-                    db.add(SourceConfig(source="teams", config=token_data))
+                    db.add(SourceConfig(org_id=org_id, source="teams", config=token_data))
                 db.commit()
             finally:
                 db.close()
         except Exception as e:
-            logger.warning("[Teams] Cannot save token to DB: %s", e)
+            logger.warning("[Teams] Cannot save token to DB (org=%s): %s", org_id, e)
 
     async def _refresh_token(self, refresh_token: str) -> str | None:
         from core.config import settings
@@ -332,18 +355,98 @@ class TeamsConnector(BaseConnector):
                 if msg.get("messageType") != "message":
                     continue
                 body_content = (msg.get("body") or {}).get("content", "")
-                if not body_content.strip():
+
+                audio_attachment = self._find_audio_attachment(msg.get("attachments", []))
+                image_attachment = self._find_image_attachment(msg.get("attachments", []))
+                if audio_attachment:
+                    msg["_is_voice"] = True
+                    msg["_audio_hosted_content_url"] = (
+                        f"{GRAPH_API}/teams/{team_id}/channels/{channel_id}"
+                        f"/messages/{msg['id']}/hostedContents/{audio_attachment['id']}/$value"
+                    )
+                if image_attachment:
+                    msg["_image_hosted_content_url"] = (
+                        f"{GRAPH_API}/teams/{team_id}/channels/{channel_id}"
+                        f"/messages/{msg['id']}/hostedContents/{image_attachment['id']}/$value"
+                    )
+                if not audio_attachment and not image_attachment and not body_content.strip():
                     continue
+
                 msg["team_name"] = team_name
                 msg["channel_name"] = channel_name
                 msg["team_id"] = team_id
                 msg["channel_id"] = channel_id
                 msgs.append(msg)
+
+            await self._transcribe_voice_messages(msgs, headers)
+            await self._download_images(msgs, headers)
             return msgs
 
         except Exception as e:
             logger.warning("[Teams] Error fetching messages %s/%s: %s", team_id, channel_id, e)
             return []
+
+    @staticmethod
+    def _find_audio_attachment(attachments: list[dict]) -> dict | None:
+        """
+        Détecte une pièce jointe audio (message vocal) dans `message.attachments`.
+        NOTE : structure best-effort, non validée sur un vrai message vocal Teams —
+        à ajuster si le contentType/nom réel diffère une fois testé en conditions réelles.
+        """
+        for att in attachments:
+            content_type = str(att.get("contentType", "")).lower()
+            name = str(att.get("name", "")).lower()
+            if "audio" in content_type or name.endswith((".mp4", ".m4a", ".wav", ".mp3", ".ogg")):
+                return att
+        return None
+
+    async def _transcribe_voice_messages(self, msgs: list[dict], headers: dict) -> None:
+        """Télécharge + transcrit les messages vocaux (mutate en place : `_voice_transcript`)."""
+        from intelligence.nlp.transcription import download_and_transcribe
+
+        for msg in msgs:
+            url = msg.get("_audio_hosted_content_url")
+            if not url:
+                continue
+            transcript = await download_and_transcribe(url, headers)
+            if transcript:
+                msg["_voice_transcript"] = transcript
+            else:
+                logger.warning("[Teams] Transcription échouée pour un message vocal (id=%s)", msg.get("id"))
+
+    @staticmethod
+    def _find_image_attachment(attachments: list[dict]) -> dict | None:
+        """Détecte une pièce jointe image dans `message.attachments` — même logique
+        best-effort que _find_audio_attachment (à ajuster si besoin sur un vrai
+        message avec image, non encore testé en conditions réelles)."""
+        for att in attachments:
+            content_type = str(att.get("contentType", "")).lower()
+            name = str(att.get("name", "")).lower()
+            if "image" in content_type or name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
+                return att
+        return None
+
+    async def _download_images(self, msgs: list[dict], headers: dict) -> None:
+        """Télécharge les images en pièce jointe (mutate en place :
+        `_pending_image_bytes`) — l'analyse elle-même est centralisée dans
+        BaseConnector.sync() (cf. intelligence/nlp/image_processor.py), pas
+        dupliquée ici."""
+        import httpx
+
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            for msg in msgs:
+                url = msg.get("_image_hosted_content_url")
+                if not url:
+                    continue
+                try:
+                    resp = await client.get(url, headers=headers)
+                    if resp.status_code != 200:
+                        logger.warning("[Teams] Téléchargement image échoué (%s) pour message %s",
+                                        resp.status_code, msg.get("id"))
+                        continue
+                    msg["_pending_image_bytes"] = resp.content
+                except Exception as e:
+                    logger.warning("[Teams] Téléchargement image échoué (id=%s) : %s", msg.get("id"), e)
 
     # ── Normalize ─────────────────────────────────────────────────
 
@@ -351,11 +454,15 @@ class TeamsConnector(BaseConnector):
         from_user = (raw.get("from") or {}).get("user") or {}
         author = from_user.get("displayName") or from_user.get("email") or "unknown"
 
-        body = raw.get("body") or {}
-        content = body.get("content", "")
-        if body.get("contentType") == "html":
-            import re
-            content = re.sub(r"<[^>]+>", " ", content).strip()
+        is_voice = raw.get("_is_voice", False)
+        if is_voice:
+            content = raw.get("_voice_transcript", "")
+        else:
+            body = raw.get("body") or {}
+            content = body.get("content", "")
+            if body.get("contentType") == "html":
+                import re
+                content = re.sub(r"<[^>]+>", " ", content).strip()
 
         ts_str = raw.get("createdDateTime", "")
         try:
@@ -371,9 +478,11 @@ class TeamsConnector(BaseConnector):
         tags = [team_name, channel_name] if team_name else [channel_name]
         if importance in ("urgent", "high"):
             tags.append(importance)
+        if is_voice:
+            tags.append("voice")
 
         return DataItem(
-            id=f"teams_{raw['id']}",
+            id=self.scoped_id(raw['id']),
             source=SourceType.TEAMS,
             type=ItemType.MESSAGE,
             title=title,
@@ -389,6 +498,7 @@ class TeamsConnector(BaseConnector):
                 "channel_name": channel_name,
                 "importance":   importance,
                 "message_type": raw.get("messageType", "message"),
+                "is_voice":     is_voice,
             },
             raw=raw,
         )

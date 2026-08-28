@@ -129,6 +129,7 @@ class ClickUpConnector(BaseConnector):
                     list_ids = await self._get_list_ids(client, space_id)
                     for list_id in list_ids:
                         tasks = await self._fetch_tasks(client, list_id, since, max_tasks)
+                        await self._download_images(client, tasks)
                         all_tasks.extend(tasks)
 
         logger.info("[ClickUp] %d tasks fetched total", len(all_tasks))
@@ -223,6 +224,35 @@ class ClickUpConnector(BaseConnector):
 
         return tasks[:max_tasks]
 
+    async def _download_images(self, client: httpx.AsyncClient, tasks: list[dict]) -> None:
+        """Télécharge les images en pièce jointe (mutate en place :
+        `_pending_image_bytes`) — l'analyse elle-même est centralisée dans
+        BaseConnector.sync() (cf. intelligence/nlp/image_processor.py).
+        NOTE : suppose que l'API `/list/{id}/task` renvoie un champ
+        `attachments` par tâche avec `mimetype`/`extension` + `url` — pas
+        encore validé sur un vrai workspace ClickUp avec pièce jointe, à
+        ajuster si la structure réelle diffère."""
+        image_exts = {"png", "jpg", "jpeg", "gif", "webp", "bmp"}
+        for task in tasks:
+            attachments = task.get("attachments") or []
+            image_att = next(
+                (a for a in attachments
+                 if str(a.get("mimetype", "")).lower().startswith("image/")
+                 or str(a.get("extension", "")).lower().lstrip(".") in image_exts),
+                None,
+            )
+            if not image_att or not image_att.get("url"):
+                continue
+            try:
+                resp = await client.get(image_att["url"], headers=self._headers())
+                if resp.status_code == 200:
+                    task["_pending_image_bytes"] = resp.content
+                else:
+                    logger.warning("[ClickUp] Téléchargement image échoué (%s) pour tâche %s",
+                                    resp.status_code, task.get("id"))
+            except Exception as e:
+                logger.warning("[ClickUp] Téléchargement image échoué (id=%s) : %s", task.get("id"), e)
+
     # ── Normalize ───────────────────────────────────────────────────────────────
 
     def normalize(self, raw: dict[str, Any]) -> DataItem:
@@ -290,7 +320,7 @@ class ClickUpConnector(BaseConnector):
             content_full += f" | Folder: {folder_name}"
 
         return DataItem(
-            id=f"clickup_{task_id}",
+            id=self.scoped_id(task_id),
             source=SourceType.CLICKUP,
             type=ItemType.TICKET,
             title=title,

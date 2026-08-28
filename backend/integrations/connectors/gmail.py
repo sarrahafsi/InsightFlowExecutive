@@ -1,4 +1,5 @@
 import base64
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -6,6 +7,8 @@ from typing import Any
 from .base import BaseConnector
 from .registry import ConnectorRegistry
 from .schemas import DataItem, ItemType, SourceType
+
+logger = logging.getLogger(__name__)
 
 MOCK_EMAILS = [
     {
@@ -142,6 +145,9 @@ class GmailConnector(BaseConnector):
             "no-reply", "noreply", "do-not-reply", "donotreply",
             "notifications@", "mailer-daemon", "bounce@",
         )
+        from core.config import settings
+        system_sender = (settings.smtp_from_email or settings.smtp_user or "").strip().lower()
+
         def _is_automated(msg: dict) -> bool:
             headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
             # 1. no-reply sender
@@ -151,9 +157,49 @@ class GmailConnector(BaseConnector):
             # 2. List-Unsubscribe header → newsletter / digest / marketing
             if headers.get("List-Unsubscribe") or headers.get("List-ID"):
                 return True
+            # 3. Sent by InsightFlow itself (ex: email de vérification) — pas un vrai message business
+            if system_sender and system_sender in from_raw:
+                return True
             return False
 
-        return [m for m in raw_items if not _is_automated(m)]
+        filtered = [m for m in raw_items if not _is_automated(m)]
+        self._download_images(filtered)
+        return filtered
+
+    @staticmethod
+    def _find_image_part(payload: dict) -> dict | None:
+        """Cherche récursivement une pièce jointe image dans `payload.parts`
+        (structure multipart de l'API Gmail)."""
+        mime = payload.get("mimeType", "")
+        if mime.startswith("image/") and payload.get("body", {}).get("attachmentId"):
+            return payload
+        for part in payload.get("parts") or []:
+            found = GmailConnector._find_image_part(part)
+            if found:
+                return found
+        return None
+
+    def _download_images(self, raw_items: list[dict]) -> None:
+        """Récupère les images en pièce jointe (mutate en place :
+        `_pending_image_bytes`, un champ de premier niveau — pas dans
+        `payload`, qui est retiré de `raw` dans _normalize_real). L'analyse
+        elle-même est centralisée dans BaseConnector.sync() (cf.
+        intelligence/nlp/image_processor.py), pas dupliquée ici."""
+        for msg in raw_items:
+            image_part = self._find_image_part(msg.get("payload", {}))
+            if not image_part:
+                continue
+            attachment_id = image_part.get("body", {}).get("attachmentId")
+            try:
+                att = self._service.users().messages().attachments().get(
+                    userId="me", messageId=msg["id"], id=attachment_id,
+                ).execute()
+                data_b64url = att.get("data")
+                if data_b64url:
+                    padded = data_b64url + "=" * (-len(data_b64url) % 4)
+                    msg["_pending_image_bytes"] = base64.urlsafe_b64decode(padded)
+            except Exception as e:
+                logger.warning("[Gmail] Récupération pièce jointe échouée (id=%s) : %s", msg.get("id"), e)
 
     def normalize(self, raw: dict[str, Any]) -> DataItem:
         if self.config.get("use_mock", False):
@@ -164,7 +210,7 @@ class GmailConnector(BaseConnector):
 
     def _normalize_mock(self, raw: dict[str, Any]) -> DataItem:
         return DataItem(
-            id=f"gmail_{raw['id']}",
+            id=self.scoped_id(raw['id']),
             source=SourceType.GMAIL,
             type=ItemType.EMAIL,
             title=raw.get("subject", "(no subject)"),
@@ -188,7 +234,7 @@ class GmailConnector(BaseConnector):
         labels = raw.get("labelIds", [])
 
         return DataItem(
-            id=f"gmail_{raw['id']}",
+            id=self.scoped_id(raw['id']),
             source=SourceType.GMAIL,
             type=ItemType.EMAIL,
             title=subject,
