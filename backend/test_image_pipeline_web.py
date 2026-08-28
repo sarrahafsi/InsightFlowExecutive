@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import HTMLResponse
 
-from intelligence.nlp.image_processor import process_image
+from intelligence.nlp.image_processor import process_image_async
 
 app = FastAPI()
 
@@ -57,7 +57,7 @@ async def upload(file: UploadFile = File(...)):
     saved_path = UPLOAD_DIR / file.filename
     saved_path.write_bytes(content)
 
-    result = process_image(saved_path)
+    result = await process_image_async(saved_path)
 
     img_b64 = base64.b64encode(content).decode()
     img_src = f"data:{file.content_type};base64,{img_b64}"

@@ -85,18 +85,18 @@ def _parse_llm_json(raw: str) -> dict[str, Any] | None:
         return None
 
 
-def _fuse_with_llm(ocr_text: str | None, vision_caption: str | None) -> dict[str, Any] | None:
+async def _fuse_with_llm_async(ocr_text: str | None, vision_caption: str | None) -> dict[str, Any] | None:
     from intelligence.llm.client import complete
 
     user_prompt = _build_user_prompt(ocr_text, vision_caption)
     try:
-        raw = asyncio.run(complete(
+        raw = await complete(
             system=FUSION_SYSTEM_PROMPT,
             user=user_prompt,
             use_tools=False,
             temperature=0.1,
             max_tokens=300,
-        ))
+        )
     except Exception as e:
         logger.warning("[NLP/ImageProcessor] Appel LLM echoue: %s", e)
         return None
@@ -129,13 +129,15 @@ def _to_content_text(structured: dict[str, Any]) -> str:
     return " ".join(p for p in parts if p).strip()
 
 
-def process_image(image_path: str | Path) -> dict[str, Any]:
-    """Traite une image : OCR + Vision + fusion LLM. Ne leve jamais d'exception."""
+async def process_image_async(image_path: str | Path) -> dict[str, Any]:
+    """Version async — a utiliser depuis un contexte deja async (routes FastAPI,
+    Celery avec asyncio, etc.) pour eviter le conflit "asyncio.run() dans une
+    boucle deja active" (RuntimeError). Ne leve jamais d'exception."""
     image_path = Path(image_path)
     ocr_text = extract_text(image_path)
     vision_caption = generate_caption(image_path)
 
-    structured = _fuse_with_llm(ocr_text, vision_caption)
+    structured = await _fuse_with_llm_async(ocr_text, vision_caption)
     if structured is None:
         structured = _fallback_structured(ocr_text, vision_caption)
 
@@ -145,3 +147,11 @@ def process_image(image_path: str | Path) -> dict[str, Any]:
         "structured": structured,
         "content": _to_content_text(structured),
     }
+
+
+def process_image(image_path: str | Path) -> dict[str, Any]:
+    """Version synchrone — a utiliser depuis un script/CLI classique (pas de
+    boucle asyncio deja active). Pour un contexte deja async, utiliser
+    process_image_async() directement (await) plutot que cette fonction."""
+    return asyncio.run(process_image_async(image_path))
+
