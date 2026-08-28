@@ -35,19 +35,25 @@ from pathlib import Path
 from typing import Any
 
 from intelligence.nlp.ocr_service import extract_text
+from intelligence.nlp.trend_detector import detect_line_trend
 from intelligence.nlp.vision_service import generate_caption
 
 logger = logging.getLogger(__name__)
 
 FUSION_SYSTEM_PROMPT = """You analyze a business screenshot (dashboard, ticket, \
-error message, chat, email, chart, table, document, or workflow) using two \
-signals extracted from it:
+error message, chat, email, chart, table, document, or workflow) using up to \
+three signals extracted from it:
 1. OCR text — the exact text read from the image (may be noisy or incomplete).
 2. Vision caption — a general visual description (may be vague, ignore it if \
 it contradicts the OCR text).
+3. Detected line trend — a best-effort pixel-based signal (increasing/\
+decreasing/flat/not detected), only meaningful if the image is a line chart. \
+Neither the OCR text nor the vision caption can reliably report a chart's \
+trend direction on their own — trust this signal for that specific fact when \
+present, alongside the OCR text for exact values.
 
-Combine both into a short structured JSON object, in English, with exactly \
-these fields:
+Combine all available signals into a short structured JSON object, in \
+English, with exactly these fields:
 {
   "image_type": one short category, e.g. "dashboard", "ticket", "error", \
 "chat", "chart", "table", "document", "workflow", "email", or "other",
@@ -65,10 +71,12 @@ ones that are not in the OCR text. Respond with ONLY the JSON object, no \
 other text."""
 
 
-def _build_user_prompt(ocr_text: str | None, vision_caption: str | None) -> str:
+def _build_user_prompt(ocr_text: str | None, vision_caption: str | None, line_trend: str | None) -> str:
     ocr_part = ocr_text if ocr_text else "(no text detected)"
     vision_part = vision_caption if vision_caption else "(no caption available)"
-    return f"OCR text:\n{ocr_part}\n\nVision caption:\n{vision_part}"
+    trend_part = line_trend if line_trend else "(not detected / not a line chart)"
+    return (f"OCR text:\n{ocr_part}\n\nVision caption:\n{vision_part}\n\n"
+            f"Detected line trend:\n{trend_part}")
 
 
 def _parse_llm_json(raw: str) -> dict[str, Any] | None:
@@ -85,10 +93,11 @@ def _parse_llm_json(raw: str) -> dict[str, Any] | None:
         return None
 
 
-async def _fuse_with_llm_async(ocr_text: str | None, vision_caption: str | None) -> dict[str, Any] | None:
+async def _fuse_with_llm_async(ocr_text: str | None, vision_caption: str | None,
+                                line_trend: str | None) -> dict[str, Any] | None:
     from intelligence.llm.client import complete
 
-    user_prompt = _build_user_prompt(ocr_text, vision_caption)
+    user_prompt = _build_user_prompt(ocr_text, vision_caption, line_trend)
     try:
         raw = await complete(
             system=FUSION_SYSTEM_PROMPT,
@@ -136,14 +145,16 @@ async def process_image_async(image_path: str | Path) -> dict[str, Any]:
     image_path = Path(image_path)
     ocr_text = extract_text(image_path)
     vision_caption = generate_caption(image_path)
+    line_trend = detect_line_trend(image_path)
 
-    structured = await _fuse_with_llm_async(ocr_text, vision_caption)
+    structured = await _fuse_with_llm_async(ocr_text, vision_caption, line_trend)
     if structured is None:
         structured = _fallback_structured(ocr_text, vision_caption)
 
     return {
         "ocr_text": ocr_text,
         "vision_caption": vision_caption,
+        "line_trend": line_trend,
         "structured": structured,
         "content": _to_content_text(structured),
     }

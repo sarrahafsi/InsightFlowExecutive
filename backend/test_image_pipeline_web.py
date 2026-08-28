@@ -66,12 +66,14 @@ async def upload(file: UploadFile = File(...)):
 
     ocr_safe = html.escape(result["ocr_text"] or "(aucun texte detecte)")
     vision_safe = html.escape(result["vision_caption"] or "(pas de caption)")
+    trend_safe = html.escape(result.get("line_trend") or "(non detectee / pas un graphique en ligne)")
     json_safe = html.escape(structured_json)
     content_safe = html.escape(result["content"])
 
     body = f"""
     <img src="{img_src}" alt="uploaded image">
     <div class="block"><h3>Texte OCR detecte</h3><pre>{ocr_safe}</pre></div>
+    <div class="block"><h3>Tendance detectee (si graphique)</h3><pre>{trend_safe}</pre></div>
     <div class="block"><h3>Caption Vision (BLIP)</h3><pre>{vision_safe}</pre></div>
     <div class="block"><h3>Resultat structure (JSON)</h3><pre>{json_safe}</pre></div>
     <div class="block"><h3>Texte final pour le pipeline NLP</h3><pre>{content_safe}</pre></div>

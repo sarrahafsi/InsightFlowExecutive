@@ -25,6 +25,9 @@ if __name__ == "__main__":
     print("\n-- Caption Vision (BLIP) -----------------------")
     print(result["vision_caption"] or "(pas de caption)")
 
+    print("\n-- Tendance detectee (si graphique) -------------")
+    print(result.get("line_trend") or "(non detectee / pas un graphique en ligne)")
+
     print("\n-- Resultat structure (JSON) --------------------")
     print(json.dumps(result["structured"], indent=2, ensure_ascii=True))
 
