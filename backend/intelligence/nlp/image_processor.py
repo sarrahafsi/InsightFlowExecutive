@@ -166,3 +166,25 @@ def process_image(image_path: str | Path) -> dict[str, Any]:
     process_image_async() directement (await) plutot que cette fonction."""
     return asyncio.run(process_image_async(image_path))
 
+
+async def process_image_bytes_async(image_bytes: bytes, suffix: str = ".img") -> dict[str, Any]:
+    """Comme process_image_async, mais a partir de bytes bruts (ex: telecharges
+    depuis un connecteur — Slack, Teams...) plutot qu'un fichier deja sur disque.
+    Meme pattern que transcribe_audio() dans transcription.py : fichier temporaire,
+    toujours nettoye. Ne leve jamais d'exception."""
+    import tempfile
+    import os
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(image_bytes)
+            tmp_path = tmp.name
+        return await process_image_async(tmp_path)
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+

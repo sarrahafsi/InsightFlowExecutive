@@ -4,7 +4,10 @@ Slack Connector — API réelle via slack-sdk
 Récupère les messages des canaux publics auxquels le bot est invité.
 
 Config keys (dans ConnectorManager / .env) :
-    token (str)          : Bot OAuth token (xoxb-...) — lu depuis settings si absent
+    token (str)          : Bot OAuth token (xoxb-...) — passé directement (legacy)
+    org_id (str)          : Si présent, le token est chargé depuis source_configs
+                            (installé via /auth/slack — un token par organisation).
+                            Sinon, fallback sur SLACK_BOT_TOKEN (.env, workspace unique, dev/legacy).
     channel_ids (list)   : IDs de canaux à monitorer (ex: ["C12345", "C67890"])
                            Si vide → on liste automatiquement tous les canaux publics
     max_messages (int)   : Limite par canal (défaut : 50)
@@ -29,16 +32,77 @@ class SlackConnector(BaseConnector):
     # Cache username → display name pour éviter N appels API
     _user_cache: dict[str, str] = {}
 
+    def _load_db_config(self) -> dict | None:
+        """Charge le token installé via OAuth pour cette org (source_configs, source='slack')."""
+        org_id = self.config.get("org_id")
+        if not org_id:
+            return None
+        try:
+            from core.database import SessionLocal
+            from core.models import SourceConfig
+            db = SessionLocal()
+            try:
+                row = db.query(SourceConfig).filter(
+                    SourceConfig.source == "slack", SourceConfig.org_id == org_id,
+                ).first()
+                if row:
+                    return row.config if isinstance(row.config, dict) else {}
+            finally:
+                db.close()
+        except Exception:
+            pass
+        return None
+
+    def _delete_stale_token(self) -> None:
+        """Token invalide/révoqué — le supprimer de la DB pour forcer une reconnexion."""
+        org_id = self.config.get("org_id")
+        if not org_id:
+            return
+        try:
+            from core.database import SessionLocal
+            from core.models import SourceConfig
+            db = SessionLocal()
+            try:
+                db.query(SourceConfig).filter(
+                    SourceConfig.source == "slack", SourceConfig.org_id == org_id,
+                ).delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
+        except Exception:
+            pass
+
     def _get_token(self) -> str:
-        token = self.config.get("token", "")
-        if not token:
-            from core.config import settings
-            token = settings.slack_bot_token
-        return token
+        # Priorité : config passée directement (legacy/tests) > DB (org OAuth) > .env global
+        if self.config.get("token"):
+            return self.config["token"]
+        db_cfg = self._load_db_config()
+        if db_cfg and db_cfg.get("bot_token"):
+            return db_cfg["bot_token"]
+        from core.config import settings
+        return settings.slack_bot_token
 
     def _get_client(self):
         from slack_sdk import WebClient
         return WebClient(token=self._get_token())
+
+    # ── Write ─────────────────────────────────────────────────
+
+    def send_message(self, channel_id: str, text: str, thread_ts: str | None = None) -> str:
+        """Poste un message (chat:write). Retourne le ts du message envoyé."""
+        client = self._get_client()
+        resp = client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts)
+        if not resp.get("ok"):
+            raise RuntimeError(resp.get("error", "chat_postMessage failed"))
+        return resp["ts"]
+
+    def open_dm(self, user_id: str) -> str:
+        """Ouvre (ou récupère) le canal DM avec un utilisateur (im:write). Retourne le channel id."""
+        client = self._get_client()
+        resp = client.conversations_open(users=[user_id])
+        if not resp.get("ok"):
+            raise RuntimeError(resp.get("error", "conversations_open failed"))
+        return resp["channel"]["id"]
 
     # ── Authenticate ──────────────────────────────────────────
 
@@ -49,17 +113,22 @@ class SlackConnector(BaseConnector):
 
         token = self._get_token()
         if not token:
-            raise ValueError("Slack bot token manquant — ajoute SLACK_BOT_TOKEN dans .env")
+            # Pas de credentials — skip silencieusement (BaseConnector.sync() gère le cas)
+            return
 
         try:
             client = self._get_client()
             resp = client.auth_test()
             if not resp["ok"]:
-                raise ValueError(f"Slack auth_test failed : {resp.get('error')}")
+                self._delete_stale_token()
+                logger.debug("[Slack] Token invalide supprimé — sync ignoré jusqu'à reconnexion")
+                return
             logger.info("[Slack] Authentifié en tant que bot : %s (workspace : %s)",
                         resp.get("bot_id"), resp.get("team"))
         except Exception as e:
-            raise ValueError(f"Impossible de s'authentifier à Slack : {e}")
+            self._delete_stale_token()
+            logger.warning("[Slack] Échec d'authentification, credentials supprimés : %s", e)
+            return
 
         self._authenticated = True
 
@@ -83,24 +152,81 @@ class SlackConnector(BaseConnector):
             channel_msgs = self._fetch_channel(client, channel_id, oldest, max_msg)
             messages.extend(channel_msgs)
 
+        await self._transcribe_voice_messages(messages)
+        await self._process_images(messages)
+
         logger.info("[Slack] %d messages récupérés depuis %d canaux.", len(messages), len(channel_ids))
         return messages
 
+    async def _transcribe_voice_messages(self, messages: list[dict[str, Any]]) -> None:
+        """Télécharge + transcrit les messages vocaux (mutate en place : `_voice_transcript`)."""
+        from intelligence.nlp.transcription import download_and_transcribe
+
+        token = self._get_token()
+        for msg in messages:
+            if not msg.get("_is_voice") or not msg.get("_audio_url"):
+                continue
+            transcript = await download_and_transcribe(
+                msg["_audio_url"], headers={"Authorization": f"Bearer {token}"},
+            )
+            if transcript:
+                msg["_voice_transcript"] = transcript
+            else:
+                logger.warning("[Slack] Transcription échouée pour un message vocal (channel=%s)",
+                                msg.get("channel"))
+
+    async def _process_images(self, messages: list[dict[str, Any]]) -> None:
+        """Télécharge + analyse les images (OCR+Vision+fusion — mutate en place :
+        `_image_content`). Même pattern que _transcribe_voice_messages."""
+        import httpx
+        from intelligence.nlp.image_processor import process_image_bytes_async
+
+        token = self._get_token()
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            for msg in messages:
+                if not msg.get("_is_image") or not msg.get("_image_url"):
+                    continue
+                try:
+                    resp = await client.get(
+                        msg["_image_url"], headers={"Authorization": f"Bearer {token}"},
+                    )
+                    if resp.status_code != 200:
+                        logger.warning("[Slack] Téléchargement image échoué (%s) pour channel=%s",
+                                        resp.status_code, msg.get("channel"))
+                        continue
+                    result = await process_image_bytes_async(resp.content)
+                    if result.get("content"):
+                        msg["_image_content"] = result["content"]
+                except Exception as e:
+                    logger.warning("[Slack] Analyse image échouée (channel=%s) : %s",
+                                    msg.get("channel"), e)
+
     def _list_public_channels(self, client) -> list[str]:
-        """Liste tous les canaux publics auxquels le bot a accès."""
+        """Liste tous les canaux publics et y fait rejoindre le bot au besoin (channels:join)."""
         try:
             resp = client.conversations_list(
                 types="public_channel",
                 exclude_archived=True,
                 limit=200,
             )
-            channels = resp.get("channels", [])
-            ids = [c["id"] for c in channels if not c.get("is_archived")]
-            logger.info("[Slack] %d canaux publics trouvés.", len(ids))
-            return ids
+            channels = [c for c in resp.get("channels", []) if not c.get("is_archived")]
         except Exception as e:
             logger.warning("[Slack] Impossible de lister les canaux : %s", e)
             return []
+
+        ids = []
+        for c in channels:
+            cid = c["id"]
+            if not c.get("is_member"):
+                try:
+                    client.conversations_join(channel=cid)
+                except Exception as e:
+                    logger.debug("[Slack] Impossible de rejoindre #%s : %s", c.get("name", cid), e)
+                    continue
+            ids.append(cid)
+
+        logger.info("[Slack] %d canaux publics accessibles.", len(ids))
+        return ids
 
     def _fetch_channel(self, client, channel_id: str, oldest: str, limit: int) -> list[dict]:
         """Récupère les messages d'un canal depuis `oldest`."""
@@ -127,7 +253,22 @@ class SlackConnector(BaseConnector):
                 # Ignorer les messages système / bot
                 if msg.get("subtype") in ("channel_join", "channel_leave", "bot_message"):
                     continue
-                if not msg.get("text", "").strip():
+
+                audio_file = next(
+                    (f for f in msg.get("files", []) if str(f.get("mimetype", "")).startswith("audio/")),
+                    None,
+                )
+                image_file = next(
+                    (f for f in msg.get("files", []) if str(f.get("mimetype", "")).startswith("image/")),
+                    None,
+                )
+                if audio_file:
+                    msg["_is_voice"] = True
+                    msg["_audio_url"] = audio_file.get("url_private_download")
+                if image_file:
+                    msg["_is_image"] = True
+                    msg["_image_url"] = image_file.get("url_private_download")
+                if not audio_file and not image_file and not msg.get("text", "").strip():
                     continue
 
                 msg["channel"] = channel_id
@@ -170,21 +311,37 @@ class SlackConnector(BaseConnector):
         timestamp = datetime.utcfromtimestamp(ts_float)
         channel_name = raw.get("channel_name", raw.get("channel", "unknown"))
 
+        is_voice = raw.get("_is_voice", False)
+        is_image = raw.get("_is_image", False)
+        image_content = raw.get("_image_content")
+        base_text = raw.get("text", "")
+
+        if is_voice:
+            content = raw.get("_voice_transcript") or base_text
+        elif is_image and image_content:
+            content = f"{base_text}\n\n[Image] {image_content}" if base_text.strip() else f"[Image] {image_content}"
+        else:
+            content = base_text
+
+        tags = [channel_name] + (["voice"] if is_voice else []) + (["image"] if is_image else [])
+
         return DataItem(
-            id=f"slack_{raw['ts']}_{raw.get('channel', '')}",
+            id=self.scoped_id(f"{raw['ts']}_{raw.get('channel', '')}"),
             source=SourceType.SLACK,
             type=ItemType.MESSAGE,
             title=f"#{channel_name}",
-            content=raw.get("text", ""),
+            content=content,
             author=raw.get("username", raw.get("user", "unknown")),
             timestamp=timestamp,
             url=raw.get("permalink", ""),
-            tags=[channel_name],
+            tags=tags,
             metadata={
                 "channel_id":   raw.get("channel"),
                 "channel_name": channel_name,
                 "user_id":      raw.get("user"),
                 "thread_ts":    raw.get("thread_ts"),
+                "is_voice":     is_voice,
+                "is_image":     is_image,
             },
             raw=raw,
         )
