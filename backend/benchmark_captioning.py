@@ -586,12 +586,16 @@ def load_clip():
 
 
 def compute_clip_score(clip_processor, clip_model, image_path: Path, caption: str) -> float:
+    """Passe par vision_model/text_model + projections directement (plutôt que par
+    get_image_features/get_text_features) : sur certaines versions récentes de
+    transformers, ces méthodes wrapper renvoient un objet BaseModelOutputWithPooling
+    au lieu d'un tenseur — les sous-modules eux restent stables entre versions."""
     image = Image.open(image_path).convert("RGB")
     inputs = clip_processor(text=[caption], images=image, return_tensors="pt", padding=True).to(DEVICE)
     with torch.no_grad():
-        img_feat  = clip_model.get_image_features(pixel_values=inputs["pixel_values"])
-        txt_feat  = clip_model.get_text_features(
-            input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
+        img_feat  = clip_model.visual_projection(clip_model.vision_model(pixel_values=inputs["pixel_values"]).pooler_output)
+        txt_feat  = clip_model.text_projection(clip_model.text_model(
+            input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"]).pooler_output)
         img_feat  = img_feat / img_feat.norm(dim=-1, keepdim=True)
         txt_feat  = txt_feat / txt_feat.norm(dim=-1, keepdim=True)
         score     = max((img_feat * txt_feat).sum().item() * 100, 0)
