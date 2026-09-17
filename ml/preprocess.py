@@ -8,14 +8,21 @@ Produit un dataset propre prêt pour le fine-tuning.
   1. Nettoyage texte    — URLs, signatures, caractères spéciaux, espaces
   2. Filtrage qualité   — textes trop courts (< 5 mots) ou trop longs (> 300)
   3. Déduplication      — suppression des doublons exacts
-  4. Équilibrage        — oversampling minorité OU undersampling majoritaire
+  4. Équilibrage        — aucun (défaut) OU oversampling OU undersampling
   5. Split              — train / val / test (70/15/15)
   6. Export             — CSV prêts pour fine-tuning
 
+Défaut : strategy="none" — le dataset garde ses proportions réelles, le
+déséquilibre est compensé pendant l'entraînement par WeightedTrainer
+(ml/finetune.py), pas par duplication de lignes. L'oversampling reste
+disponible (--strategy oversample) mais duplique des exemples avant le
+split train/val/test, ce qui peut faire fuiter les mêmes lignes des deux
+côtés (risque de mémorisation plutôt que de généralisation).
+
 Usage :
-    python ml/preprocess.py                          # full dataset, both tasks
+    python ml/preprocess.py                          # full dataset, both tasks (strategy=none)
     python ml/preprocess.py --lang en --task sentiment
-    python ml/preprocess.py --strategy undersample   # ou oversample (défaut)
+    python ml/preprocess.py --strategy oversample     # duplique les minorités (déconseillé)
 
 Outputs :
     ml/dataset/clean_sentiment_train.csv
@@ -284,7 +291,7 @@ def export_split(rows: list[dict], path: str):
 #  MAIN PIPELINE
 # ─────────────────────────────────────────────────────────────────
 
-def run_preprocessing(lang: str = "full", strategy: str = "oversample"):
+def run_preprocessing(lang: str = "full", strategy: str = "none"):
     print(f"\n{'='*65}")
     print(f"  InsightFlow — Data Preprocessing Pipeline")
     print(f"  Lang: {lang} | Strategy: {strategy}")
@@ -382,6 +389,6 @@ def run_preprocessing(lang: str = "full", strategy: str = "oversample"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--lang",     default="full",       choices=["en", "fr", "full"])
-    parser.add_argument("--strategy", default="oversample", choices=["oversample", "undersample", "none"])
+    parser.add_argument("--strategy", default="none", choices=["oversample", "undersample", "none"])
     args = parser.parse_args()
     run_preprocessing(lang=args.lang, strategy=args.strategy)

@@ -3,27 +3,50 @@ Search + Priority Inbox + Authors + Compare
 All endpoints are org-scoped — each CEO sees only their own data.
 """
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from collections import defaultdict, Counter
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from core.config import settings
 from core.models import User
-from core.security import get_current_user
+from core.security import get_current_org_user
 from core.store import OrgScopedItemStore
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/search", tags=["search"])
+
+# Voir data/analytics/engine.py::_LOCAL_TZ pour le raisonnement complet —
+# minuit UTC != minuit local, ça excluait les messages reçus juste après
+# minuit heure tunisienne du filtre "Aujourd'hui".
+_LOCAL_TZ = ZoneInfo("Africa/Tunis")
 
 
 class RagSearchRequest(BaseModel):
     query:         str
     top_k:         int = 5
     source_filter: str | None = None
+    org_id:        str | None = None
+    since_date:    str | None = None
 
 
 @router.post("/rag")
-async def rag_search(body: RagSearchRequest):
-    """Endpoint HTTP pour le MCP knowledge_server — évite de charger ChromaDB dans le subprocess."""
+async def rag_search(body: RagSearchRequest, x_internal_secret: str = Header(default="")):
+    """
+    Endpoint HTTP interne pour le MCP knowledge_server — évite de charger ChromaDB
+    dans le subprocess. Appelé uniquement par un sous-processus lancé par ce même
+    backend (pas de session utilisateur/JWT dispo là-bas) : protégé par un secret
+    partagé plutôt que Depends(get_current_org_user). org_id obligatoire — sans lui
+    la recherche renvoyait les messages de TOUTES les organisations (incident 03/09/2026).
+    """
+    if not x_internal_secret or x_internal_secret != settings.secret_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not body.org_id:
+        raise HTTPException(status_code=400, detail="org_id requis")
+
     from intelligence.rag.retriever import retrieve
-    docs = retrieve(body.query, top_k=body.top_k, source_filter=body.source_filter)
+    docs = retrieve(
+        body.query, top_k=body.top_k, source_filter=body.source_filter,
+        since_date=body.since_date, org_id=body.org_id,
+    )
     relevant = [d for d in docs if d.score <= 0.75]
     return {
         "results": [
@@ -45,17 +68,17 @@ async def rag_search(body: RagSearchRequest):
 
 
 def _since_from_days(since_days: int) -> datetime:
-    now = datetime.utcnow()
     if since_days == 1:
-        return now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return now - timedelta(days=since_days)
+        midnight_local = datetime.now(_LOCAL_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+        return midnight_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    return datetime.utcnow() - timedelta(days=since_days)
 
 
 # ── Recherche textuelle ────────────────────────────────────────
 
 @router.get("")
 async def search(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     q: str = Query("", description="Mot-clé à rechercher"),
     topic: str = Query("", description="Filtrer par topic"),
     business_label: str = Query("", description="Filtrer par label business"),
@@ -66,7 +89,7 @@ async def search(
     """Recherche full-text + filtres NLP sur les messages de l'org."""
     store = OrgScopedItemStore(current_user.org_id)
     since = _since_from_days(since_days)
-    items = store.all(since=since, limit=5000)
+    items = [i for i in store.all(since=since, limit=5000) if "SENT" not in (i.tags or [])]
 
     q_lower = q.lower().strip()
     results = []
@@ -87,7 +110,7 @@ async def search(
             "source":          item.source,
             "title":           (item.title or "")[:120],
             "author":          item.author or "",
-            "timestamp":       item.timestamp.isoformat(),
+            "timestamp":       item.timestamp.isoformat() + "Z",
             "sentiment_label": m.get("sentiment_label"),
             "business_label":  m.get("business_label"),
             "emotion_label":   m.get("emotion_label"),
@@ -116,7 +139,7 @@ EMOTION_SCORE   = {"frustration": 3, "urgency": 3, "concern": 2, "neutral": 0, "
 
 @router.get("/priority")
 async def priority_inbox(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     since_days: int = 7,
     limit: int = 10,
     source: str = "",
@@ -124,7 +147,7 @@ async def priority_inbox(
     """Top messages prioritaires à lire — classés par score IA, scoped à l'org."""
     store = OrgScopedItemStore(current_user.org_id)
     since = _since_from_days(since_days)
-    items = store.all(since=since, limit=2000)
+    items = [i for i in store.all(since=since, limit=2000) if "SENT" not in (i.tags or [])]
     if source:
         items = [i for i in items if i.source == source]
 
@@ -146,7 +169,7 @@ async def priority_inbox(
             "source":         item.source,
             "title":          (item.title or "")[:100],
             "author":         item.author or "",
-            "timestamp":      item.timestamp.isoformat(),
+            "timestamp":      item.timestamp.isoformat() + "Z",
             "priority_score": score,
             "business_label": m.get("business_label", "Neutral Update"),
             "sentiment_label":m.get("sentiment_label"),
@@ -165,13 +188,13 @@ async def priority_inbox(
 
 @router.get("/authors")
 async def list_authors(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     since_days: int = 30,
 ):
     """Liste tous les auteurs avec leurs stats NLP agrégées — scoped à l'org."""
     store = OrgScopedItemStore(current_user.org_id)
     since = datetime.utcnow() - timedelta(days=since_days)
-    items = store.all(since=since, limit=5000)
+    items = [i for i in store.all(since=since, limit=5000) if "SENT" not in (i.tags or [])]
 
     authors: dict = defaultdict(lambda: {
         "count": 0, "sentiment": Counter(), "business": Counter(),
@@ -211,7 +234,7 @@ async def list_authors(
             "after_hours_rate":   round(d["after_hours"] / total * 100),
             "weekend_rate":       round(d["weekend"] / total * 100),
             "avg_burnout":        round(sum(bs) / len(bs), 2) if bs else 0.0,
-            "last_message":       max(d["timestamps"]).isoformat() if d["timestamps"] else None,
+            "last_message":       max(d["timestamps"]).isoformat() + "Z" if d["timestamps"] else None,
         })
 
     result.sort(key=lambda x: x["message_count"], reverse=True)
@@ -221,13 +244,14 @@ async def list_authors(
 @router.get("/authors/{author_name}")
 async def author_detail(
     author_name: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     since_days: int = 90,
 ):
     """Profil détaillé d'un auteur — scoped à l'org."""
     store = OrgScopedItemStore(current_user.org_id)
     since = datetime.utcnow() - timedelta(days=since_days)
-    items = [i for i in store.all(since=since, limit=5000) if i.author == author_name]
+    items = [i for i in store.all(since=since, limit=5000)
+             if i.author == author_name and "SENT" not in (i.tags or [])]
 
     if not items:
         return {"author": author_name, "found": False, "messages": []}
@@ -246,7 +270,7 @@ async def author_detail(
         messages.append({
             "id":              item.id,
             "title":           (item.title or "")[:100],
-            "timestamp":       item.timestamp.isoformat(),
+            "timestamp":       item.timestamp.isoformat() + "Z",
             "sentiment_label": m.get("sentiment_label"),
             "business_label":  m.get("business_label"),
             "emotion_label":   m.get("emotion_label"),
@@ -271,7 +295,7 @@ async def author_detail(
 
 @router.get("/compare")
 async def compare_periods(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     period_a: int = 7,
     period_b: int = 14,
 ):

@@ -95,32 +95,40 @@ def fetch_corrections(task: str, label_filter: list[str] | None = None) -> pd.Da
     }
     corrected_col, original_col = col_map[task]
 
+    # Seules les corrections des organisations ayant explicitement consenti
+    # (contributes_to_shared_training = TRUE) alimentent le modèle partagé.
     if label_filter:
         placeholders = ",".join(["%s"] * len(label_filter))
         cur.execute(f"""
-            SELECT id, text_snapshot AS text,
-                   {corrected_col} AS label,
-                   {original_col}  AS original_label
-            FROM human_corrections
-            WHERE used_in_training = FALSE
-              AND {corrected_col} IS NOT NULL
-              AND ({corrected_col} IN ({placeholders}) OR {original_col} IN ({placeholders}))
-              AND text_snapshot IS NOT NULL
-              AND LENGTH(text_snapshot) > 20
-            ORDER BY corrected_at ASC
+            SELECT hc.id, hc.text_snapshot AS text,
+                   hc.{corrected_col} AS label,
+                   hc.{original_col}  AS original_label
+            FROM human_corrections hc
+            JOIN messages_raw  mr ON mr.id = hc.message_id
+            JOIN organisations o  ON o.id  = mr.org_id
+            WHERE hc.used_in_training = FALSE
+              AND hc.{corrected_col} IS NOT NULL
+              AND (hc.{corrected_col} IN ({placeholders}) OR hc.{original_col} IN ({placeholders}))
+              AND hc.text_snapshot IS NOT NULL
+              AND LENGTH(hc.text_snapshot) > 20
+              AND o.contributes_to_shared_training = TRUE
+            ORDER BY hc.corrected_at ASC
         """, label_filter + label_filter)
         print(f"[MLOps] Targeted fetch — labels: {label_filter}")
     else:
         cur.execute(f"""
-            SELECT id, text_snapshot AS text,
-                   {corrected_col} AS label,
-                   {original_col}  AS original_label
-            FROM human_corrections
-            WHERE used_in_training = FALSE
-              AND {corrected_col} IS NOT NULL
-              AND text_snapshot IS NOT NULL
-              AND LENGTH(text_snapshot) > 20
-            ORDER BY corrected_at ASC
+            SELECT hc.id, hc.text_snapshot AS text,
+                   hc.{corrected_col} AS label,
+                   hc.{original_col}  AS original_label
+            FROM human_corrections hc
+            JOIN messages_raw  mr ON mr.id = hc.message_id
+            JOIN organisations o  ON o.id  = mr.org_id
+            WHERE hc.used_in_training = FALSE
+              AND hc.{corrected_col} IS NOT NULL
+              AND hc.text_snapshot IS NOT NULL
+              AND LENGTH(hc.text_snapshot) > 20
+              AND o.contributes_to_shared_training = TRUE
+            ORDER BY hc.corrected_at ASC
         """)
 
     rows = cur.fetchall()
@@ -154,12 +162,15 @@ def count_pending_corrections() -> dict:
     cur  = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
         SELECT
-            COUNT(*) FILTER (WHERE corrected_sentiment IS NOT NULL AND NOT used_in_training) AS sentiment,
-            COUNT(*) FILTER (WHERE corrected_emotion   IS NOT NULL AND NOT used_in_training) AS emotion,
-            COUNT(*) FILTER (WHERE corrected_business  IS NOT NULL AND NOT used_in_training) AS business,
-            COUNT(*) FILTER (WHERE NOT used_in_training)                                    AS total,
-            MAX(corrected_at) AS last_correction
-        FROM human_corrections
+            COUNT(*) FILTER (WHERE hc.corrected_sentiment IS NOT NULL AND NOT hc.used_in_training) AS sentiment,
+            COUNT(*) FILTER (WHERE hc.corrected_emotion   IS NOT NULL AND NOT hc.used_in_training) AS emotion,
+            COUNT(*) FILTER (WHERE hc.corrected_business  IS NOT NULL AND NOT hc.used_in_training) AS business,
+            COUNT(*) FILTER (WHERE NOT hc.used_in_training)                                        AS total,
+            MAX(hc.corrected_at) AS last_correction
+        FROM human_corrections hc
+        JOIN messages_raw  mr ON mr.id = hc.message_id
+        JOIN organisations o  ON o.id  = mr.org_id
+        WHERE o.contributes_to_shared_training = TRUE
     """)
     row = cur.fetchone()
     cur.close()

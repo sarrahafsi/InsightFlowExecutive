@@ -64,45 +64,57 @@ class AutonomousLearningAgent:
             conn = psycopg2.connect(DB_URL)
             cur  = conn.cursor(cursor_factory=RealDictCursor)
 
-            cur.execute("""
+            # Seules les corrections des organisations ayant consenti
+            # (contributes_to_shared_training = TRUE) sont visibles de l'agent.
+            consenting_join = """
+                JOIN messages_raw  mr ON mr.id = hc.message_id
+                JOIN organisations o  ON o.id  = mr.org_id
+                    AND o.contributes_to_shared_training = TRUE
+            """
+
+            cur.execute(f"""
                 SELECT
-                    COUNT(*) FILTER (WHERE corrected_sentiment IS NOT NULL AND NOT used_in_training) AS sentiment_count,
-                    COUNT(*) FILTER (WHERE corrected_emotion   IS NOT NULL AND NOT used_in_training) AS emotion_count,
-                    COUNT(*) FILTER (WHERE corrected_business  IS NOT NULL AND NOT used_in_training) AS business_count,
-                    COUNT(*) FILTER (WHERE NOT used_in_training)                                    AS total_pending
-                FROM human_corrections
+                    COUNT(*) FILTER (WHERE hc.corrected_sentiment IS NOT NULL AND NOT hc.used_in_training) AS sentiment_count,
+                    COUNT(*) FILTER (WHERE hc.corrected_emotion   IS NOT NULL AND NOT hc.used_in_training) AS emotion_count,
+                    COUNT(*) FILTER (WHERE hc.corrected_business  IS NOT NULL AND NOT hc.used_in_training) AS business_count,
+                    COUNT(*) FILTER (WHERE NOT hc.used_in_training)                                        AS total_pending
+                FROM human_corrections hc
+                {consenting_join}
             """)
             counts = dict(cur.fetchone())
 
-            cur.execute("""
-                SELECT original_emotion, corrected_emotion, COUNT(*) AS count
-                FROM human_corrections
-                WHERE corrected_emotion IS NOT NULL AND NOT used_in_training
-                  AND original_emotion IS NOT NULL
-                  AND original_emotion != corrected_emotion
-                GROUP BY original_emotion, corrected_emotion
+            cur.execute(f"""
+                SELECT hc.original_emotion, hc.corrected_emotion, COUNT(*) AS count
+                FROM human_corrections hc
+                {consenting_join}
+                WHERE hc.corrected_emotion IS NOT NULL AND NOT hc.used_in_training
+                  AND hc.original_emotion IS NOT NULL
+                  AND hc.original_emotion != hc.corrected_emotion
+                GROUP BY hc.original_emotion, hc.corrected_emotion
                 ORDER BY count DESC LIMIT 10
             """)
             emotion_confusions = [dict(r) for r in cur.fetchall()]
 
-            cur.execute("""
-                SELECT original_sentiment, corrected_sentiment, COUNT(*) AS count
-                FROM human_corrections
-                WHERE corrected_sentiment IS NOT NULL AND NOT used_in_training
-                  AND original_sentiment IS NOT NULL
-                  AND original_sentiment != corrected_sentiment
-                GROUP BY original_sentiment, corrected_sentiment
+            cur.execute(f"""
+                SELECT hc.original_sentiment, hc.corrected_sentiment, COUNT(*) AS count
+                FROM human_corrections hc
+                {consenting_join}
+                WHERE hc.corrected_sentiment IS NOT NULL AND NOT hc.used_in_training
+                  AND hc.original_sentiment IS NOT NULL
+                  AND hc.original_sentiment != hc.corrected_sentiment
+                GROUP BY hc.original_sentiment, hc.corrected_sentiment
                 ORDER BY count DESC LIMIT 10
             """)
             sentiment_confusions = [dict(r) for r in cur.fetchall()]
 
-            cur.execute("""
+            cur.execute(f"""
                 SELECT
-                    COUNT(*) FILTER (WHERE corrected_at >= NOW() - INTERVAL '3 days' AND NOT used_in_training)  AS recent_3d,
-                    COUNT(*) FILTER (WHERE corrected_at >= NOW() - INTERVAL '7 days' AND NOT used_in_training)  AS recent_7d,
-                    MIN(corrected_at) FILTER (WHERE NOT used_in_training) AS oldest_pending,
-                    MAX(corrected_at) FILTER (WHERE NOT used_in_training) AS newest_pending
-                FROM human_corrections
+                    COUNT(*) FILTER (WHERE hc.corrected_at >= NOW() - INTERVAL '3 days' AND NOT hc.used_in_training)  AS recent_3d,
+                    COUNT(*) FILTER (WHERE hc.corrected_at >= NOW() - INTERVAL '7 days' AND NOT hc.used_in_training)  AS recent_7d,
+                    MIN(hc.corrected_at) FILTER (WHERE NOT hc.used_in_training) AS oldest_pending,
+                    MAX(hc.corrected_at) FILTER (WHERE NOT hc.used_in_training) AS newest_pending
+                FROM human_corrections hc
+                {consenting_join}
             """)
             timing = {k: str(v) if v else None for k, v in dict(cur.fetchone()).items()}
 

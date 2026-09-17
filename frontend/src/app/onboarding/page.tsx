@@ -18,6 +18,15 @@ const OAUTH_URL_ENDPOINT: Record<string, string> = {
   gmail:   "/auth/google",
   teams:   "/auth/teams/auth-url",
   outlook: "/auth/outlook/auth-url",
+  slack:   "/auth/slack/auth-url",
+};
+
+/* Only sources with a backend disconnect route (gmail/jira have none yet) */
+const DISCONNECT_ENDPOINT: Record<string, string> = {
+  teams:    "/api/sources/teams/disconnect",
+  outlook:  "/api/sources/outlook/disconnect",
+  slack:    "/api/sources/slack/disconnect",
+  clickup:  "/api/sources/clickup/disconnect",
 };
 
 interface FormField { key: string; label: string; placeholder: string; type?: string; hint?: string; required?: boolean; }
@@ -63,7 +72,9 @@ function OnboardingInner() {
   const router        = useRouter();
   const params        = useSearchParams();
 
-  const [step, setStep]               = useState<WizardStep>("welcome");
+  const [step, setStep]               = useState<WizardStep>(
+    () => (params.get("step") === "choose" ? "choose" : "welcome")
+  );
   const [sources, setSources]         = useState<SourceStatus[]>([]);
   const [connected, setConnected]     = useState<Set<string>>(new Set());
   const [selected, setSelected]       = useState<SourceStatus | null>(null);
@@ -74,6 +85,7 @@ function OnboardingInner() {
   const [sourcesError, setSourcesError]     = useState(false);
   const [syncMsg, setSyncMsg]               = useState("");
   const [orgName, setOrgName] = useState("CEO");
+  const [disconnecting, setDisconnecting] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const u = getUser();
@@ -83,6 +95,8 @@ function OnboardingInner() {
   /* Load sources + handle OAuth callback param */
   useEffect(() => {
     const connectedParam = params.get("connected");
+    const errorParam     = params.get("error");
+    const connectedEmail = params.get("connected_email");
 
     // If returning from OAuth, skip the welcome screen immediately
     if (connectedParam) setStep("choose");
@@ -92,6 +106,19 @@ function OnboardingInner() {
         const list: SourceStatus[] = r.data;
         setSources(list);
         const alreadyConnected = new Set(list.filter(s => s.connected).map(s => s.key));
+
+        // OAuth callback rejected the account (wrong domain) — token was NOT saved.
+        // Surface the error instead of falsely showing the "connected" confirmation step.
+        if (connectedParam && errorParam === "domain_mismatch") {
+          setConnected(alreadyConnected);
+          setFormError(
+            connectedEmail
+              ? `Le compte "${connectedEmail}" n'appartient pas au domaine de votre organisation — connexion refusée. Reconnectez-vous avec un compte de votre entreprise.`
+              : "Le compte connecté n'appartient pas au domaine de votre organisation — connexion refusée."
+          );
+          return;
+        }
+
         if (connectedParam) alreadyConnected.add(connectedParam);
         setConnected(alreadyConnected);
         // If returning from OAuth, show the "connected" confirmation step
@@ -113,11 +140,17 @@ function OnboardingInner() {
   const startOAuth = useCallback(async (src: SourceStatus) => {
     const endpoint = OAUTH_URL_ENDPOINT[src.key];
     if (!endpoint) return;
+    setFormError("");
     try {
       const r = await API.get(endpoint);
       window.location.href = r.data.url;
-    } catch {
-      setFormError("Impossible de lancer l'authentification OAuth.");
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail;
+      setFormError(
+        typeof detail === "string"
+          ? detail
+          : "Impossible de lancer l'authentification OAuth."
+      );
     }
   }, []);
 
@@ -145,13 +178,37 @@ function OnboardingInner() {
 
   function handleSourceClick(src: SourceStatus) {
     if (!src.available || src.coming_soon) return;
-    if (connected.has(src.key)) return; // already done
+    if (connected.has(src.key)) return; // already done — use the disconnect button instead
     setSelected(src);
     setFormError(""); setFormValues({});
     if (OAUTH_URL_ENDPOINT[src.key]) {
       startOAuth(src);
     } else {
       setStep("form");
+    }
+  }
+
+  async function disconnectSource(key: string, e: React.MouseEvent) {
+    e.stopPropagation(); // don't trigger the card's onClick
+    const endpoint = DISCONNECT_ENDPOINT[key];
+    if (!endpoint) return;
+    setFormError("");
+    setDisconnecting(prev => new Set([...prev, key]));
+    try {
+      await API.delete(endpoint);
+      setConnected(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    } catch (e: any) {
+      setFormError(e?.response?.data?.detail ?? "Impossible de déconnecter cette source.");
+    } finally {
+      setDisconnecting(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     }
   }
 
@@ -222,6 +279,11 @@ function OnboardingInner() {
               <span style={{ fontSize: 12, color: "#16a34a", fontWeight: 600 }}>{connectedCount} source{connectedCount > 1 ? "s" : ""} connectée{connectedCount > 1 ? "s" : ""}</span>
             </div>
           )}
+          {formError && (
+            <div style={{ marginTop: 14, textAlign: "left", background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 10, padding: "10px 14px", color: "#dc2626", fontSize: 13 }}>
+              {formError}
+            </div>
+          )}
         </div>
 
         {loadingSources ? (
@@ -267,7 +329,24 @@ function OnboardingInner() {
                   {isConnected && src.sync_pending ? (
                     <span style={{ fontSize: 10, fontWeight: 600, color: "#d97706", background: "rgba(217,119,6,0.1)", borderRadius: 6, padding: "3px 8px" }}>⏳ Sync en cours</span>
                   ) : isConnected ? (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#16a34a", background: "rgba(34,197,94,0.1)", borderRadius: 6, padding: "3px 8px" }}>✓ Connecté</span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#16a34a", background: "rgba(34,197,94,0.1)", borderRadius: 6, padding: "3px 8px" }}>✓ Connecté</span>
+                      {DISCONNECT_ENDPOINT[src.key] && (
+                        <button
+                          onClick={(e) => disconnectSource(src.key, e)}
+                          disabled={disconnecting.has(src.key)}
+                          style={{
+                            background: "none", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444",
+                            borderRadius: 6, padding: "3px 8px", fontSize: 10, fontWeight: 600,
+                            cursor: disconnecting.has(src.key) ? "not-allowed" : "pointer",
+                            opacity: disconnecting.has(src.key) ? 0.6 : 1,
+                            fontFamily: "DM Sans, sans-serif",
+                          }}
+                        >
+                          {disconnecting.has(src.key) ? "…" : "Déconnecter"}
+                        </button>
+                      )}
+                    </div>
                   ) : src.coming_soon ? (
                     <span style={{ fontSize: 10, color: "#94a3b8", background: "rgba(116,140,171,0.1)", borderRadius: 6, padding: "3px 8px", fontWeight: 600, letterSpacing: "0.05em" }}>BIENTÔT</span>
                   ) : src.available ? (

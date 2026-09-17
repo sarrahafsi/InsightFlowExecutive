@@ -58,6 +58,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     from core.database import SessionLocal
     from core.models import MessageRaw
 
+    # Injecté par le backend juste avant l'appel (cf. intelligence/llm/client.py
+    # _call_mcp_tool) — jamais laissé au LLM à fournir. Pas d'org_id = pas de résultat,
+    # plutôt que de retourner les données de toutes les organisations.
+    org_id = arguments.get("_org_id")
+    if not org_id:
+        return [TextContent(type="text", text=json.dumps({"error": "org_id manquant", "emails": [], "risks": []}))]
+
     db = SessionLocal()
     try:
         if name == "get_recent_emails":
@@ -69,6 +76,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             since = datetime.utcnow() - timedelta(days=days)
             q = db.query(MessageRaw).filter(
                 MessageRaw.source == "gmail",
+                MessageRaw.org_id == org_id,
                 MessageRaw.timestamp >= since,
             )
             if urgent_only:
@@ -102,6 +110,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             since = datetime.utcnow() - timedelta(days=days)
 
             rows = db.query(MessageRaw).filter(
+                MessageRaw.org_id == org_id,
                 MessageRaw.timestamp >= since,
                 MessageRaw.business_label.in_(["Blocked", "Urgent", "Risk", "Conflict", "Overload"]),
             ).order_by(MessageRaw.timestamp.desc()).limit(limit).all()

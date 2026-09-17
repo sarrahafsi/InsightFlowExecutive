@@ -145,8 +145,11 @@ class GmailConnector(BaseConnector):
             "no-reply", "noreply", "do-not-reply", "donotreply",
             "notifications@", "mailer-daemon", "bounce@",
         )
-        from core.config import settings
-        system_sender = (settings.smtp_from_email or settings.smtp_user or "").strip().lower()
+        # Repéré par SUJET, pas par adresse d'envoi — voir le même correctif
+        # dans application/routes/auth.py::_do_gmail_sync_blocking pour le
+        # raisonnement complet (filtrer par adresse SMTP ignorait aussi les
+        # emails écrits à la main depuis cette même adresse).
+        AUTOMATED_SUBJECT_MARKERS = ("insightflow executive",)
 
         def _is_automated(msg: dict) -> bool:
             headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
@@ -157,8 +160,9 @@ class GmailConnector(BaseConnector):
             # 2. List-Unsubscribe header → newsletter / digest / marketing
             if headers.get("List-Unsubscribe") or headers.get("List-ID"):
                 return True
-            # 3. Sent by InsightFlow itself (ex: email de vérification) — pas un vrai message business
-            if system_sender and system_sender in from_raw:
+            # 3. Email automatique InsightFlow (ex: vérification de compte)
+            subject_raw = headers.get("Subject", "").lower()
+            if any(m in subject_raw for m in AUTOMATED_SUBJECT_MARKERS):
                 return True
             return False
 

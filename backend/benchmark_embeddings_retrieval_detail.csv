@@ -1,0 +1,81 @@
+model,query,correct_topic,cross_lingual,top1_topic,p_at_1,p_at_3,reciprocal_rank
+sentence-transformers/all-MiniLM-L6-v2,Le client se plaint du montant facture sur sa derniere facture.,facturation_client,False,facturation_client,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,Why is the API sprint behind schedule?,retard_sprint,False,retard_sprint,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,Un gros client montre des signes de desabonnement.,churn_client,False,churn_client,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,Was there any unauthorized login attempt recently?,incident_securite,False,incident_securite,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,Le budget infrastructure a-t-il ete approuve ce trimestre ?,budget_infra,False,budget_infra,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,Ou en est le recrutement du developpeur backend ?,recrutement,False,recrutement,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,Is there a critical bug affecting production checkout?,bug_production,False,bug_production,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,Why did the last deployment fail?,deploiement_echec,False,deploiement_echec,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,What do beta testers think about the new dashboard?,feedback_beta,False,feedback_beta,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,Le fournisseur a-t-il propose une hausse de prix ?,negociation_fournisseur,False,negociation_fournisseur,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,What happened during last night's server outage?,panne_serveur,False,panne_serveur,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,Quand demarre l'onboarding du nouveau client entreprise ?,onboarding_client,False,onboarding_client,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,Y a-t-il un litige en cours sur une facture client ?,facturation_client,False,facturation_client,1.0,1.0,1.0
+sentence-transformers/all-MiniLM-L6-v2,Are we going to lose an important customer soon?,churn_client,True,bug_production,0.0,0.0,0.05
+sentence-transformers/all-MiniLM-L6-v2,Did we get overcharged or is there a billing dispute?,facturation_client,True,bug_production,0.0,0.0,0.0357
+sentence-transformers/all-MiniLM-L6-v2,Le pipeline de deploiement a-t-il echoue ?,deploiement_echec,True,recrutement,0.0,0.0,0.0323
+sentence-transformers/all-MiniLM-L6-v2,L'equipe est-elle en retard sur le sprint en cours ?,retard_sprint,True,recrutement,0.0,0.0,0.0323
+sentence-transformers/all-MiniLM-L6-v2,Y a-t-il eu une activite suspecte sur un compte utilisateur ?,incident_securite,True,facturation_client,0.0,0.0,0.0323
+sentence-transformers/all-MiniLM-L6-v2,Le serveur principal est-il tombe en panne cette nuit ?,panne_serveur,True,budget_infra,0.0,0.0,0.0312
+sentence-transformers/all-MiniLM-L6-v2,Is the cloud vendor asking for a price increase?,negociation_fournisseur,True,budget_infra,0.0,0.0,0.0417
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Le client se plaint du montant facture sur sa derniere facture.,facturation_client,False,facturation_client,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Why is the API sprint behind schedule?,retard_sprint,False,retard_sprint,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Un gros client montre des signes de desabonnement.,churn_client,False,churn_client,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Was there any unauthorized login attempt recently?,incident_securite,False,incident_securite,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Le budget infrastructure a-t-il ete approuve ce trimestre ?,budget_infra,False,budget_infra,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Ou en est le recrutement du developpeur backend ?,recrutement,False,recrutement,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Is there a critical bug affecting production checkout?,bug_production,False,bug_production,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Why did the last deployment fail?,deploiement_echec,False,deploiement_echec,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,What do beta testers think about the new dashboard?,feedback_beta,False,feedback_beta,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Le fournisseur a-t-il propose une hausse de prix ?,negociation_fournisseur,False,negociation_fournisseur,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,What happened during last night's server outage?,panne_serveur,False,panne_serveur,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Quand demarre l'onboarding du nouveau client entreprise ?,onboarding_client,False,onboarding_client,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Y a-t-il un litige en cours sur une facture client ?,facturation_client,False,facturation_client,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Are we going to lose an important customer soon?,churn_client,True,churn_client,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Did we get overcharged or is there a billing dispute?,facturation_client,True,facturation_client,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Le pipeline de deploiement a-t-il echoue ?,deploiement_echec,True,deploiement_echec,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,L'equipe est-elle en retard sur le sprint en cours ?,retard_sprint,True,retard_sprint,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Y a-t-il eu une activite suspecte sur un compte utilisateur ?,incident_securite,True,incident_securite,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Le serveur principal est-il tombe en panne cette nuit ?,panne_serveur,True,panne_serveur,1.0,1.0,1.0
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,Is the cloud vendor asking for a price increase?,negociation_fournisseur,True,negociation_fournisseur,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,Le client se plaint du montant facture sur sa derniere facture.,facturation_client,False,facturation_client,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,Why is the API sprint behind schedule?,retard_sprint,False,retard_sprint,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,Un gros client montre des signes de desabonnement.,churn_client,False,churn_client,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,Was there any unauthorized login attempt recently?,incident_securite,False,incident_securite,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,Le budget infrastructure a-t-il ete approuve ce trimestre ?,budget_infra,False,budget_infra,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,Ou en est le recrutement du developpeur backend ?,recrutement,False,recrutement,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,Is there a critical bug affecting production checkout?,bug_production,False,bug_production,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,Why did the last deployment fail?,deploiement_echec,False,deploiement_echec,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,What do beta testers think about the new dashboard?,feedback_beta,False,feedback_beta,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,Le fournisseur a-t-il propose une hausse de prix ?,negociation_fournisseur,False,negociation_fournisseur,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,What happened during last night's server outage?,panne_serveur,False,panne_serveur,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,Quand demarre l'onboarding du nouveau client entreprise ?,onboarding_client,False,onboarding_client,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,Y a-t-il un litige en cours sur une facture client ?,facturation_client,False,facturation_client,1.0,1.0,1.0
+sentence-transformers/all-mpnet-base-v2,Are we going to lose an important customer soon?,churn_client,True,bug_production,0.0,0.0,0.25
+sentence-transformers/all-mpnet-base-v2,Did we get overcharged or is there a billing dispute?,facturation_client,True,bug_production,0.0,1.0,0.3333
+sentence-transformers/all-mpnet-base-v2,Le pipeline de deploiement a-t-il echoue ?,deploiement_echec,True,recrutement,0.0,0.0,0.0323
+sentence-transformers/all-mpnet-base-v2,L'equipe est-elle en retard sur le sprint en cours ?,retard_sprint,True,budget_infra,0.0,0.0,0.0333
+sentence-transformers/all-mpnet-base-v2,Y a-t-il eu une activite suspecte sur un compte utilisateur ?,incident_securite,True,recrutement,0.0,0.0,0.0323
+sentence-transformers/all-mpnet-base-v2,Le serveur principal est-il tombe en panne cette nuit ?,panne_serveur,True,facturation_client,0.0,0.0,0.0323
+sentence-transformers/all-mpnet-base-v2,Is the cloud vendor asking for a price increase?,negociation_fournisseur,True,budget_infra,0.0,0.0,0.04
+BAAI/bge-small-en-v1.5,Le client se plaint du montant facture sur sa derniere facture.,facturation_client,False,facturation_client,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,Why is the API sprint behind schedule?,retard_sprint,False,retard_sprint,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,Un gros client montre des signes de desabonnement.,churn_client,False,churn_client,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,Was there any unauthorized login attempt recently?,incident_securite,False,incident_securite,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,Le budget infrastructure a-t-il ete approuve ce trimestre ?,budget_infra,False,budget_infra,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,Ou en est le recrutement du developpeur backend ?,recrutement,False,recrutement,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,Is there a critical bug affecting production checkout?,bug_production,False,bug_production,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,Why did the last deployment fail?,deploiement_echec,False,deploiement_echec,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,What do beta testers think about the new dashboard?,feedback_beta,False,feedback_beta,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,Le fournisseur a-t-il propose une hausse de prix ?,negociation_fournisseur,False,negociation_fournisseur,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,What happened during last night's server outage?,panne_serveur,False,panne_serveur,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,Quand demarre l'onboarding du nouveau client entreprise ?,onboarding_client,False,onboarding_client,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,Y a-t-il un litige en cours sur une facture client ?,facturation_client,False,facturation_client,1.0,1.0,1.0
+BAAI/bge-small-en-v1.5,Are we going to lose an important customer soon?,churn_client,True,bug_production,0.0,0.0,0.1111
+BAAI/bge-small-en-v1.5,Did we get overcharged or is there a billing dispute?,facturation_client,True,bug_production,0.0,0.0,0.1
+BAAI/bge-small-en-v1.5,Le pipeline de deploiement a-t-il echoue ?,deploiement_echec,True,budget_infra,0.0,0.0,0.0435
+BAAI/bge-small-en-v1.5,L'equipe est-elle en retard sur le sprint en cours ?,retard_sprint,True,recrutement,0.0,1.0,0.5
+BAAI/bge-small-en-v1.5,Y a-t-il eu une activite suspecte sur un compte utilisateur ?,incident_securite,True,churn_client,0.0,0.0,0.1
+BAAI/bge-small-en-v1.5,Le serveur principal est-il tombe en panne cette nuit ?,panne_serveur,True,facturation_client,0.0,0.0,0.0323
+BAAI/bge-small-en-v1.5,Is the cloud vendor asking for a price increase?,negociation_fournisseur,True,budget_infra,0.0,0.0,0.0435

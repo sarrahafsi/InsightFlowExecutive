@@ -393,7 +393,7 @@ def start_scheduler():
     _scheduler.add_job(
         nlp_enrichment_job,
         trigger="interval",
-        minutes=30,
+        minutes=5,
         id="nlp_enrichment_periodic",
         name="NLP Enrichment — items non enrichis",
         replace_existing=True,
@@ -403,9 +403,9 @@ def start_scheduler():
     _scheduler.add_job(
         gmail_periodic_sync_job,
         trigger="interval",
-        minutes=15,
+        minutes=5,
         id="gmail_periodic_sync",
-        name="Gmail — sync périodique toutes les 15 min",
+        name="Gmail — sync périodique toutes les 5 min",
         replace_existing=True,
         misfire_grace_time=120,
         executor="threadpool",

@@ -76,16 +76,21 @@ class MCPServerManager:
             self._burnout_signals,
         )
 
-    async def _analytics_summary(self, days: int = 30, **_) -> dict:
+    async def _analytics_summary(self, days: int = 30, org_id: str | None = None, **_) -> dict:
         from datetime import datetime, timedelta
         from core.database import SessionLocal
         from core.models import MessageRaw
         from collections import Counter
 
+        if not org_id:
+            return {"error": "org_id manquant", "total": 0}
+
         db = SessionLocal()
         try:
             since = datetime.utcnow() - timedelta(days=days)
-            rows  = db.query(MessageRaw).filter(MessageRaw.timestamp >= since).all()
+            rows  = db.query(MessageRaw).filter(
+                MessageRaw.org_id == org_id, MessageRaw.timestamp >= since,
+            ).all()
             total = len(rows)
             if total == 0:
                 return {"total": 0, "period_days": days}
@@ -111,15 +116,20 @@ class MCPServerManager:
         finally:
             db.close()
 
-    async def _burnout_signals(self, days: int = 14, threshold: float = 0.5, **_) -> dict:
+    async def _burnout_signals(self, days: int = 14, threshold: float = 0.5,
+                                org_id: str | None = None, **_) -> dict:
         from datetime import datetime, timedelta
         from core.database import SessionLocal
         from core.models import MessageRaw
+
+        if not org_id:
+            return {"error": "org_id manquant", "count": 0, "signals": []}
 
         db = SessionLocal()
         try:
             since = datetime.utcnow() - timedelta(days=days)
             rows  = db.query(MessageRaw).filter(
+                MessageRaw.org_id == org_id,
                 MessageRaw.timestamp >= since,
                 MessageRaw.burnout_score >= threshold,
             ).order_by(MessageRaw.burnout_score.desc()).limit(20).all()
@@ -174,16 +184,21 @@ class MCPServerManager:
         )
 
     async def _recent_emails(self, days: int = 7, urgent_only: bool = False,
-                              business_label: str = None, limit: int = 10, **_) -> dict:
+                              business_label: str = None, limit: int = 10,
+                              org_id: str | None = None, **_) -> dict:
         from datetime import datetime, timedelta
         from core.database import SessionLocal
         from core.models import MessageRaw
+
+        if not org_id:
+            return {"error": "org_id manquant", "count": 0, "emails": []}
 
         db = SessionLocal()
         try:
             since = datetime.utcnow() - timedelta(days=days)
             q = db.query(MessageRaw).filter(
                 MessageRaw.source == "gmail",
+                MessageRaw.org_id == org_id,
                 MessageRaw.timestamp >= since,
             )
             if urgent_only:
@@ -213,15 +228,20 @@ class MCPServerManager:
         finally:
             db.close()
 
-    async def _risk_items(self, days: int = 7, limit: int = 10, **_) -> dict:
+    async def _risk_items(self, days: int = 7, limit: int = 10,
+                           org_id: str | None = None, **_) -> dict:
         from datetime import datetime, timedelta
         from core.database import SessionLocal
         from core.models import MessageRaw
+
+        if not org_id:
+            return {"error": "org_id manquant", "count": 0, "risks": []}
 
         db = SessionLocal()
         try:
             since = datetime.utcnow() - timedelta(days=days)
             rows  = db.query(MessageRaw).filter(
+                MessageRaw.org_id == org_id,
                 MessageRaw.timestamp >= since,
                 MessageRaw.business_label.in_(["Blocked", "Urgent", "Risk", "Conflict", "Overload"]),
             ).order_by(MessageRaw.timestamp.desc()).limit(limit).all()
@@ -262,16 +282,21 @@ class MCPServerManager:
             self._jira_tickets,
         )
 
-    async def _jira_tickets(self, status: str = None, days: int = 30, limit: int = 10, **_) -> dict:
+    async def _jira_tickets(self, status: str = None, days: int = 30, limit: int = 10,
+                             org_id: str | None = None, **_) -> dict:
         from datetime import datetime, timedelta
         from core.database import SessionLocal
         from core.models import MessageRaw
+
+        if not org_id:
+            return {"error": "org_id manquant", "count": 0, "tickets": []}
 
         db = SessionLocal()
         try:
             since = datetime.utcnow() - timedelta(days=days)
             q = db.query(MessageRaw).filter(
                 MessageRaw.source == "jira",
+                MessageRaw.org_id == org_id,
                 MessageRaw.timestamp >= since,
             )
             if status == "blocked":
@@ -317,7 +342,10 @@ class MCPServerManager:
         )
 
     async def _search_knowledge(self, query: str, top_k: int = 5,
-                                 source_filter: str = None, **_) -> dict:
+                                 source_filter: str = None,
+                                 org_id: str | None = None, **_) -> dict:
+        if not org_id:
+            return {"error": "org_id manquant", "results": [], "count": 0}
         try:
             from intelligence.rag.retriever import retrieve
             from intelligence.rag.embedder import get_collection
@@ -326,7 +354,7 @@ class MCPServerManager:
             if not col or col.count() == 0:
                 return {"results": [], "count": 0, "indexed": 0, "note": "ChromaDB vide — sync d'abord"}
 
-            docs = retrieve(query, top_k=top_k, source_filter=source_filter)
+            docs = retrieve(query, top_k=top_k, source_filter=source_filter, org_id=org_id)
             return {
                 "query":   query,
                 "count":   len(docs),
@@ -369,10 +397,14 @@ class MCPServerManager:
             servers.setdefault(t.server, []).append(t.name)
         return servers
 
-    async def call_tool(self, tool: str, args: dict) -> dict:
+    async def call_tool(self, tool: str, args: dict, org_id: str | None = None) -> dict:
         """
         Appelle un outil par son nom.
         Recherche dans tous les serveurs enregistrés.
+
+        org_id : org de l'utilisateur authentifié (cf. application/routes/mcp.py) —
+        propagé à chaque handler, qui DOIT filtrer dessus. Sans ça, un CEO obtient
+        les données de toutes les organisations (incident 03/09/2026).
         """
         entry = self._tools.get(tool)
         if not entry:
@@ -382,7 +414,7 @@ class MCPServerManager:
 
         logger.info("[MCPManager] %s.%s(%s)", entry.server, tool, list(args.keys()))
         try:
-            result = await entry.handler(**args)
+            result = await entry.handler(**args, org_id=org_id)
             return result
         except Exception as e:
             logger.error("[MCPManager] Error calling %s: %s", tool, e)

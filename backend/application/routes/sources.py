@@ -13,9 +13,35 @@ from core.database import SessionLocal, get_db
 from core.store import ItemStore
 from application.deps import get_store
 from core.models import ConnectorCatalog, SourceConfig, MessageRaw, User
-from core.security import get_current_user
+from core.security import get_current_org_user
+from core.plans import check_org_limit
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
+
+
+def _purge_source_messages(org_id: str | None, source: str) -> int:
+    """Supprime les messages deja synchronises pour cette (org, source) — appele
+    a la deconnexion pour que la source disparaisse vraiment du dashboard, pas
+    seulement des identifiants (sinon l'historique restait affiche indefiniment,
+    meme apres deconnexion, cf. meme choix que _purge_gmail_messages pour un
+    changement de compte)."""
+    from core.store import item_store
+
+    db = SessionLocal()
+    try:
+        q = db.query(MessageRaw).filter(MessageRaw.source == source)
+        if org_id is not None:
+            q = q.filter(MessageRaw.org_id == org_id)
+        ids = [row.id for row in q.all()]
+        deleted = q.delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+    for mid in ids:
+        item_store._items.pop(mid, None)
+
+    return deleted
 
 
 class Source(BaseModel):
@@ -49,8 +75,8 @@ REGISTRY: dict[str, dict] = {
     },
     "slack": {
         "name": "Slack", "icon": "💼", "color": "#4A154B",
-        "auth_type": "bot", "description": "Canaux du workspace connectés",
-        "available": False, "coming_soon": False, "auto_connected": True, "category": "Communication"
+        "auth_type": "oauth2", "description": "Messages des canaux Slack",
+        "available": True, "coming_soon": False, "category": "Communication"
     },
     "jira": {
         "name": "Jira", "icon": "🎫", "color": "#0052CC",
@@ -147,7 +173,7 @@ def _is_jira_connected(org_id: str | None = None) -> bool:
 
 
 @router.get("/jira/status")
-async def jira_status(current_user: User = Depends(get_current_user)):
+async def jira_status(current_user: User = Depends(get_current_org_user)):
     """Retourne si Jira est connecté — scoped à l'org."""
     cfg = _load_jira_db_config(current_user.org_id)
     if cfg:
@@ -160,7 +186,7 @@ async def jira_status(current_user: User = Depends(get_current_user)):
 async def connect_jira(
     body: JiraConnectRequest,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
 ):
     """
     Connecte Jira avec les credentials fournis par le CEO.
@@ -201,6 +227,8 @@ async def connect_jira(
             row.config = config
             row.connected_at = datetime.utcnow()
         else:
+            count = db.query(SourceConfig).filter(SourceConfig.org_id == current_user.org_id).count()
+            check_org_limit(db, current_user.org_id, "max_connectors", count)
             db.add(SourceConfig(org_id=current_user.org_id, source="jira", config=config))
         db.commit()
     finally:
@@ -278,7 +306,7 @@ async def _background_jira_sync(org_id: str | None = None):
 
 @router.get("/status")
 async def sources_status(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     store=Depends(get_store),
 ):
     """Returns each source with connection status and item count.
@@ -293,6 +321,8 @@ async def sources_status(
         "teams":   SourceType.TEAMS,
         "outlook": SourceType.OUTLOOK,
     }
+    # Sources with a real DELETE /api/sources/{key}/disconnect route — see sources.py below.
+    EXPLICIT_DISCONNECT_SOURCES = {"slack", "teams", "outlook", "clickup"}
 
     # Load catalog flags from DB
     catalog: dict[str, ConnectorCatalog] = {}
@@ -337,7 +367,18 @@ async def sources_status(
             creds = get_gmail_credentials(current_user.org_id)
             connected    = creds is not None and creds.valid
             sync_pending = False
+        elif key in EXPLICIT_DISCONNECT_SOURCES:
+            # These sources have a real per-org disconnect route (see DISCONNECT_ENDPOINT
+            # on the frontend) — once the user disconnects, source_configs no longer has
+            # a row, and that must win over old synced messages still sitting in
+            # messages_raw. Falling back to count>0 here made a disconnected source look
+            # "connected" forever just because of its sync history.
+            connected    = key in configured_sources
+            sync_pending = (key in configured_sources) and (count == 0)
         else:
+            # Jira (and any other .env-only legacy connector) has no per-org disconnect
+            # flow — it can be "connected" purely via a global .env token without ever
+            # writing to source_configs, so synced items are the only signal available.
             connected    = (key in configured_sources) or (count > 0)
             sync_pending = (key in configured_sources) and (count == 0)
 
@@ -361,7 +402,7 @@ async def sources_status(
 
 @router.get("/gmail/status")
 async def gmail_sync_status(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     store=Depends(get_store),
 ):
     """Returns Gmail connection + sync status for this org."""
@@ -401,7 +442,7 @@ def _load_clickup_db_config(org_id: str | None = None) -> dict | None:
 
 
 @router.get("/clickup/status")
-async def clickup_status(current_user: User = Depends(get_current_user)):
+async def clickup_status(current_user: User = Depends(get_current_org_user)):
     cfg = _load_clickup_db_config(current_user.org_id)
     if cfg and cfg.get("api_token"):
         return {"connected": True, "team_id": cfg.get("team_id", "")}
@@ -412,7 +453,7 @@ async def clickup_status(current_user: User = Depends(get_current_user)):
 async def connect_clickup(
     body: ClickUpConnectRequest,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
 ):
     """Save ClickUp API token (lié à l'org), verify it, then sync in background."""
     import httpx as _httpx
@@ -447,6 +488,8 @@ async def connect_clickup(
             row.config = config
             row.connected_at = datetime.utcnow()
         else:
+            count = db.query(SourceConfig).filter(SourceConfig.org_id == current_user.org_id).count()
+            check_org_limit(db, current_user.org_id, "max_connectors", count)
             db.add(SourceConfig(org_id=current_user.org_id, source="clickup", config=config))
         db.commit()
     finally:
@@ -462,7 +505,7 @@ async def connect_clickup(
 
 
 @router.delete("/clickup/disconnect", status_code=204)
-async def disconnect_clickup(current_user: User = Depends(get_current_user)):
+async def disconnect_clickup(current_user: User = Depends(get_current_org_user)):
     db = SessionLocal()
     try:
         db.query(SourceConfig).filter(
@@ -472,6 +515,7 @@ async def disconnect_clickup(current_user: User = Depends(get_current_user)):
         db.commit()
     finally:
         db.close()
+    _purge_source_messages(current_user.org_id, "clickup")
 
 
 async def _background_clickup_sync(org_id: str | None = None):
@@ -506,10 +550,7 @@ async def _background_clickup_sync(org_id: str | None = None):
         print(f"[clickup-sync] {len(raw_items)} tâches trouvées")
 
         items = [connector.normalize(r) for r in raw_items]
-
-        # Scoper les IDs par org pour éviter les conflits multi-tenant
-        if org_id:
-            items = [i.model_copy(update={"id": f"{i.id}_{org_id[:8]}"}) for i in items]
+        # Le scoping par org est déjà fait par le connecteur lui-même (BaseConnector.scoped_id).
 
         if not items:
             print(f"[clickup-sync] Aucun item pour org={org_id}")
@@ -545,7 +586,7 @@ async def _background_clickup_sync(org_id: str | None = None):
 # ── Teams ─────────────────────────────────────────────────────────────────────
 
 @router.get("/teams/status")
-async def teams_status(current_user: User = Depends(get_current_user)):
+async def teams_status(current_user: User = Depends(get_current_org_user)):
     """Check whether Teams is authenticated (real or mock mode)."""
     try:
         db = SessionLocal()
@@ -585,7 +626,7 @@ async def teams_sync(background_tasks: BackgroundTasks):
 # ── Outlook ───────────────────────────────────────────────────────────────────
 
 @router.get("/outlook/status")
-async def outlook_status(current_user: User = Depends(get_current_user)):
+async def outlook_status(current_user: User = Depends(get_current_org_user)):
     try:
         db = SessionLocal()
         try:
@@ -611,7 +652,7 @@ async def outlook_sync(background_tasks: BackgroundTasks):
 
 
 @router.delete("/outlook/disconnect", status_code=204)
-async def outlook_disconnect_source(current_user: User = Depends(get_current_user)):
+async def outlook_disconnect_source(current_user: User = Depends(get_current_org_user)):
     db = SessionLocal()
     try:
         db.query(SourceConfig).filter(
@@ -628,10 +669,55 @@ async def outlook_disconnect_source(current_user: User = Depends(get_current_use
             connector._authenticated = False
     except Exception:
         pass
+    _purge_source_messages(current_user.org_id, "outlook")
+
+
+@router.get("/slack/status")
+async def slack_status_source(current_user: User = Depends(get_current_org_user)):
+    try:
+        db = SessionLocal()
+        try:
+            row = db.query(SourceConfig).filter(
+                SourceConfig.source == "slack",
+                SourceConfig.org_id == current_user.org_id,
+            ).first()
+            if row:
+                cfg = row.config if isinstance(row.config, dict) else json.loads(row.config)
+                return {
+                    "connected": True,
+                    "team_name": cfg.get("team_name"),
+                    "connect_url": "/auth/slack/connect",
+                }
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return {"connected": False, "connect_url": "/auth/slack/connect"}
+
+
+@router.post("/slack/sync")
+async def slack_sync(background_tasks: BackgroundTasks, current_user: User = Depends(get_current_org_user)):
+    from application.routes.slack_auth import _background_slack_sync
+    background_tasks.add_task(_background_slack_sync, current_user.org_id)
+    return {"message": "Slack sync triggered in background"}
+
+
+@router.delete("/slack/disconnect", status_code=204)
+async def slack_disconnect_source(current_user: User = Depends(get_current_org_user)):
+    db = SessionLocal()
+    try:
+        db.query(SourceConfig).filter(
+            SourceConfig.source == "slack",
+            SourceConfig.org_id == current_user.org_id,
+        ).delete()
+        db.commit()
+    finally:
+        db.close()
+    _purge_source_messages(current_user.org_id, "slack")
 
 
 @router.delete("/teams/disconnect", status_code=204)
-async def teams_disconnect_source(current_user: User = Depends(get_current_user)):
+async def teams_disconnect_source(current_user: User = Depends(get_current_org_user)):
     """Remove Teams token from DB and switch to mock mode."""
     db = SessionLocal()
     try:
@@ -651,3 +737,4 @@ async def teams_disconnect_source(current_user: User = Depends(get_current_user)
             connector._authenticated = False
     except Exception:
         pass
+    _purge_source_messages(current_user.org_id, "teams")

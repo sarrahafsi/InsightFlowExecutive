@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.database import get_db
 from core.models import User
-from core.security import get_current_user
+from core.security import require_plan
 from integrations.calendar.outlook_calendar import fetch_outlook_calendar
 from integrations.calendar.google_calendar import fetch_google_calendar
 from integrations.calendar.teams_meetings import fetch_teams_meetings
@@ -29,7 +29,7 @@ def _week_bounds(ref: datetime) -> tuple[datetime, datetime]:
 async def get_calendar_events(
     start: str = Query(default=None),
     end:   str = Query(default=None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_plan("calendar")),
     db: Session = Depends(get_db),
 ):
     now = datetime.utcnow()

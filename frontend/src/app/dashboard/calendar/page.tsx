@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 
-import API from "@/lib/api";
+import API, { isUpgradeRequired } from "@/lib/api";
 
 const SOURCE_META: Record<string, { label: string; color: string; icon: string }> = {
   outlook_calendar: { label: "Outlook",  color: "#0078D4", icon: "📨" },
@@ -150,6 +150,7 @@ export default function CalendarPage() {
   const [events, setEvents]               = useState<CalendarEvent[]>([]);
   const [loading, setLoading]             = useState(true);
   const [error, setError]                 = useState<string | null>(null);
+  const [upgradeRequired, setUpgradeRequired] = useState(false);
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [popoverPos, setPopoverPos]       = useState({ x: 0, y: 0 });
@@ -168,13 +169,16 @@ export default function CalendarPage() {
 
   useEffect(() => {
     const sunday = new Date(monday); sunday.setDate(sunday.getDate() + 6);
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setUpgradeRequired(false);
     API.get(`/api/calendar/events?start=${formatDate(monday)}&end=${formatDate(sunday)}`)
       .then(r => {
         setEvents(r.data.events ?? []);
         setActiveFilters(new Set<string>((r.data.events ?? []).map((e: CalendarEvent) => e.source)));
       })
-      .catch(e => setError(String(e)))
+      .catch(e => {
+        if (isUpgradeRequired(e)) setUpgradeRequired(true);
+        else setError(String(e));
+      })
       .finally(() => setLoading(false));
   }, [monday]);
 
@@ -380,7 +384,14 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {/* ── Loading / Error ─────────────────────────────────────────────────── */}
+      {/* ── Loading / Error / Upgrade ───────────────────────────────────────── */}
+      {upgradeRequired && !loading && (
+        <div style={{ background: "rgba(147,51,234,0.06)", border: "1px solid rgba(147,51,234,0.2)", borderRadius: 16, padding: "2.5rem", textAlign: "center" }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>🔒</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#0d1321", marginBottom: 6 }}>Le calendrier est une fonctionnalité Pro</div>
+          <div style={{ fontSize: 13, color: "#748cab" }}>Passez à un plan supérieur pour débloquer l'agrégation de vos calendriers Outlook, Google, Teams, Jira et ClickUp.</div>
+        </div>
+      )}
       {loading && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "40vh" }}>
           <div style={{ textAlign: "center" }}>
@@ -395,7 +406,7 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {!loading && !error && (
+      {!loading && !error && !upgradeRequired && (
         <>
           {/* ── Grille calendrier ────────────────────────────────────────────── */}
           <div style={{ background: "#fff", borderRadius: 16, boxShadow: "0 2px 16px rgba(13,19,33,0.07)", border: "1px solid rgba(62,92,118,0.1)", overflow: "hidden", marginBottom: "1.5rem" }}>

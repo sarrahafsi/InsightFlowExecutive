@@ -1,0 +1,5 @@
+model,model_full_name,dim,disk_mb,load_sec,throughput_docs_per_sec,p_at_1,p_at_3,mrr,p_at_1_cross_lingual,mrr_cross_lingual,sts_sim_paraphrase,sts_sim_related,sts_sim_unrelated,sts_gap,sts_spearman_rho
+MiniLM-L6-v2 (actuel),sentence-transformers/all-MiniLM-L6-v2,384,174.7,7.02,169.6,0.65,0.65,0.6628,0.0,0.0365,0.7753,0.3954,0.1131,0.6622,0.8693
+Multilingual-MiniLM-L12,sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,384,457.5,3.68,45.1,1.0,1.0,1.0,1.0,1.0,0.8327,0.2294,0.0774,0.7553,0.8126
+MPNet-base-v2,sentence-transformers/all-mpnet-base-v2,768,418.4,114.47,27.3,0.65,0.7,0.6877,0.0,0.1076,0.8211,0.4194,0.1454,0.6757,0.8882
+BGE-small-en-v1.5,BAAI/bge-small-en-v1.5,384,128.3,54.44,96.3,0.65,0.7,0.6965,0.0,0.1329,0.9006,0.6957,0.5603,0.3403,0.9449

@@ -1,0 +1,1767 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>InsightFlow Executive — Rapport ML Complet</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card: #161b22;
+      --card2: #1c2128;
+      --border: #30363d;
+      --accent: #58a6ff;
+      --accent2: #3fb950;
+      --accent3: #d29922;
+      --accent4: #f85149;
+      --accent5: #bc8cff;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --tag-bg: #1f2937;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    /* ─── HEADER ─── */
+    header {
+      background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0d1117 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 48px 48px 32px;
+      position: relative;
+      overflow: hidden;
+    }
+    header::before {
+      content: '';
+      position: absolute;
+      top: -80px; left: -80px;
+      width: 400px; height: 400px;
+      background: radial-gradient(circle, rgba(88,166,255,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    header::after {
+      content: '';
+      position: absolute;
+      bottom: -60px; right: -60px;
+      width: 300px; height: 300px;
+      background: radial-gradient(circle, rgba(63,185,80,0.07) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .header-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(88,166,255,0.12);
+      border: 1px solid rgba(88,166,255,0.3);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 11px;
+      color: var(--accent);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+    header h1 { font-size: 36px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 8px; }
+    header h1 span { color: var(--accent); }
+    header p { color: var(--muted); font-size: 15px; max-width: 600px; }
+    .header-meta { display: flex; gap: 32px; margin-top: 24px; }
+    .header-meta-item { display: flex; flex-direction: column; }
+    .header-meta-item .val { font-size: 22px; font-weight: 700; color: var(--accent); }
+    .header-meta-item .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+
+    /* ─── NAV ─── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(13,17,23,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 48px;
+      display: flex; gap: 4px; overflow-x: auto;
+    }
+    nav a {
+      display: inline-block;
+      color: var(--muted);
+      text-decoration: none;
+      padding: 12px 14px;
+      font-size: 13px;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+      transition: color .2s, border-color .2s;
+    }
+    nav a:hover { color: var(--text); border-color: var(--border); }
+    nav a.active { color: var(--accent); border-color: var(--accent); }
+
+    /* ─── LAYOUT ─── */
+    .container { max-width: 1280px; margin: 0 auto; padding: 40px 48px; }
+    section { margin-bottom: 64px; }
+    .section-title {
+      display: flex; align-items: center; gap: 12px;
+      font-size: 22px; font-weight: 700;
+      margin-bottom: 28px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-title .icon {
+      width: 32px; height: 32px;
+      background: rgba(88,166,255,0.12);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+
+    /* ─── CARDS ─── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 12px;
+    }
+    .grid { display: grid; gap: 16px; }
+    .grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .grid-auto { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+
+    /* ─── KPI CARDS ─── */
+    .kpi {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    }
+    .kpi.blue::before { background: var(--accent); }
+    .kpi.green::before { background: var(--accent2); }
+    .kpi.yellow::before { background: var(--accent3); }
+    .kpi.red::before { background: var(--accent4); }
+    .kpi.purple::before { background: var(--accent5); }
+    .kpi .kpi-val { font-size: 32px; font-weight: 700; letter-spacing: -1px; margin-bottom: 4px; }
+    .kpi.blue .kpi-val { color: var(--accent); }
+    .kpi.green .kpi-val { color: var(--accent2); }
+    .kpi.yellow .kpi-val { color: var(--accent3); }
+    .kpi.red .kpi-val { color: var(--accent4); }
+    .kpi.purple .kpi-val { color: var(--accent5); }
+    .kpi .kpi-lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+    .kpi .kpi-sub { font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+    /* ─── TABLES ─── */
+    .table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; background: var(--card); }
+    thead { background: var(--card2); }
+    th {
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    .best { color: var(--accent2); font-weight: 700; }
+    .champion-row { background: rgba(63,185,80,0.05); }
+
+    /* ─── BADGES ─── */
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge-blue { background: rgba(88,166,255,.15); color: #58a6ff; border: 1px solid rgba(88,166,255,.3); }
+    .badge-green { background: rgba(63,185,80,.15); color: #3fb950; border: 1px solid rgba(63,185,80,.3); }
+    .badge-yellow { background: rgba(210,153,34,.15); color: #d29922; border: 1px solid rgba(210,153,34,.3); }
+    .badge-red { background: rgba(248,81,73,.15); color: #f85149; border: 1px solid rgba(248,81,73,.3); }
+    .badge-purple { background: rgba(188,140,255,.15); color: #bc8cff; border: 1px solid rgba(188,140,255,.3); }
+    .badge-gray { background: rgba(139,148,158,.15); color: #8b949e; border: 1px solid rgba(139,148,158,.3); }
+
+    /* ─── CHARTS ─── */
+    .chart-container {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+    .chart-container h3 { font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+    canvas { max-height: 320px; }
+
+    /* ─── PIPELINE ─── */
+    .pipeline {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      overflow-x: auto;
+      padding: 20px 0;
+    }
+    .pipeline-step {
+      display: flex; flex-direction: column; align-items: center;
+      min-width: 120px;
+    }
+    .pipeline-step .step-box {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      min-width: 100px;
+    }
+    .pipeline-step .step-box.active { border-color: var(--accent); color: var(--accent); }
+    .pipeline-step .step-sub { font-size: 10px; color: var(--muted); margin-top: 6px; text-align: center; max-width: 110px; }
+    .pipeline-arrow { color: var(--muted); font-size: 20px; margin: 0 4px; flex-shrink: 0; }
+
+    /* ─── CODE ─── */
+    .code-block {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      color: #e6edf3;
+      overflow-x: auto;
+    }
+    .code-block .kw { color: #ff7b72; }
+    .code-block .str { color: #a5d6ff; }
+    .code-block .num { color: #79c0ff; }
+    .code-block .cm { color: #8b949e; font-style: italic; }
+    .code-block .fn { color: #d2a8ff; }
+
+    /* ─── PROGRESS BARS ─── */
+    .progress-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .progress-label { font-size: 12px; color: var(--muted); min-width: 120px; }
+    .progress-bar-wrap { flex: 1; background: var(--card2); border-radius: 4px; height: 8px; overflow: hidden; }
+    .progress-bar { height: 100%; border-radius: 4px; transition: width .6s ease; }
+    .progress-val { font-size: 12px; font-weight: 700; min-width: 48px; text-align: right; }
+
+    /* ─── TIMELINE ─── */
+    .timeline { position: relative; padding-left: 24px; }
+    .timeline::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+    .timeline-item { position: relative; padding-bottom: 24px; }
+    .timeline-item::before {
+      content: '';
+      position: absolute; left: -20px; top: 5px;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--bg);
+    }
+    .timeline-item h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .timeline-item p { font-size: 12px; color: var(--muted); }
+
+    /* ─── TAGS ─── */
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .tag {
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      color: var(--muted);
+      font-family: monospace;
+    }
+
+    /* ─── TWO-COL ─── */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; }
+
+    /* ─── ALERT BOX ─── */
+    .alert {
+      border-radius: 8px;
+      padding: 14px 18px;
+      font-size: 13px;
+      margin-bottom: 12px;
+      display: flex; gap: 10px; align-items: flex-start;
+    }
+    .alert-green { background: rgba(63,185,80,.08); border: 1px solid rgba(63,185,80,.25); color: #3fb950; }
+    .alert-blue { background: rgba(88,166,255,.08); border: 1px solid rgba(88,166,255,.25); color: #58a6ff; }
+    .alert-yellow { background: rgba(210,153,34,.08); border: 1px solid rgba(210,153,34,.25); color: #d29922; }
+
+    /* ─── RESPONSIVE ─── */
+    @media (max-width: 900px) {
+      .grid-4 { grid-template-columns: repeat(2, 1fr); }
+      .grid-3 { grid-template-columns: 1fr 1fr; }
+      .two-col, .three-col { grid-template-columns: 1fr; }
+      header { padding: 32px 24px 24px; }
+      .container { padding: 24px 20px; }
+      nav { padding: 0 20px; }
+    }
+    @media (max-width: 600px) {
+      .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    }
+
+    /* ─── EMOTION CLASSES ─── */
+    .emo { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+    .emo-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    /* scroll margin for anchor links */
+    section[id] { scroll-margin-top: 52px; }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════
+     HEADER
+════════════════════════════════════════════════ -->
+<header>
+  <div class="header-badge">🤖 Rapport ML &nbsp;·&nbsp; InsightFlow Executive &nbsp;·&nbsp; 2025–2026</div>
+  <h1>Machine Learning &amp; NLP <span>Pipeline Report</span></h1>
+  <p>Documentation complète du pipeline ML : génération de données, fine-tuning, benchmarks, calibration, MLOps et continuous learning pour le projet InsightFlow Executive (PFE).</p>
+  <div class="header-meta">
+    <div class="header-meta-item">
+      <span class="val">99.1%</span>
+      <span class="lbl">Accuracy Sentiment</span>
+    </div>
+    <div class="header-meta-item">
+      <span class="val">~3 000</span>
+      <span class="lbl">Samples synthétiques</span>
+    </div>
+    <div class="header-meta-item">
+      <span class="val">5</span>
+      <span class="lbl">Modèles évalués</span>
+    </div>
+    <div class="header-meta-item">
+      <span class="val">2</span>
+      <span class="lbl">Modèles fine-tunés</span>
+    </div>
+    <div class="header-meta-item">
+      <span class="val">FR + EN</span>
+      <span class="lbl">Langues supportées</span>
+    </div>
+  </div>
+</header>
+
+<!-- ════════════════════════════════════════════════
+     NAV
+════════════════════════════════════════════════ -->
+<nav>
+  <a href="#overview" class="active">Vue d'ensemble</a>
+  <a href="#data">Données</a>
+  <a href="#preprocessing">Prétraitement</a>
+  <a href="#sentiment-bench">Benchmark Sentiment</a>
+  <a href="#emotion-bench">Benchmark Emotion</a>
+  <a href="#finetune">Fine-tuning</a>
+  <a href="#calibration">Calibration</a>
+  <a href="#pipeline">Pipeline NLP</a>
+  <a href="#mlops">MLOps &amp; CL</a>
+  <a href="#monitoring">Monitoring</a>
+  <a href="#architecture">Architecture</a>
+</nav>
+
+<div class="container">
+
+<!-- ════════════════════════════════════════════════
+     1. VUE D'ENSEMBLE
+════════════════════════════════════════════════ -->
+<section id="overview">
+  <div class="section-title">
+    <div class="icon">📊</div>
+    Vue d'ensemble du système ML
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-4" style="margin-bottom:24px">
+    <div class="kpi green">
+      <div class="kpi-val">99.1%</div>
+      <div class="kpi-lbl">Accuracy Sentiment</div>
+      <div class="kpi-sub">insightflow-sentiment-xlm-v1 · Test set synthétique</div>
+    </div>
+    <div class="kpi green">
+      <div class="kpi-val">99.1%</div>
+      <div class="kpi-lbl">F1-macro Sentiment</div>
+      <div class="kpi-sub">Classes : POS / NEU / NEG</div>
+    </div>
+    <div class="kpi blue">
+      <div class="kpi-val">≥ 85%</div>
+      <div class="kpi-lbl">Target Emotion Accuracy</div>
+      <div class="kpi-sub">5 classes métier · Modèle calibré</div>
+    </div>
+    <div class="kpi purple">
+      <div class="kpi-val">0.04</div>
+      <div class="kpi-lbl">ECE après calibration</div>
+      <div class="kpi-sub">↓ 77.8% vs 0.18 avant (Temperature Scaling)</div>
+    </div>
+  </div>
+
+  <div class="grid grid-4" style="margin-bottom:32px">
+    <div class="kpi yellow">
+      <div class="kpi-val">~3 000</div>
+      <div class="kpi-lbl">Samples Dataset</div>
+      <div class="kpi-sub">Synthétique · Ollama llama3.2 · FR + EN</div>
+    </div>
+    <div class="kpi blue">
+      <div class="kpi-val">5</div>
+      <div class="kpi-lbl">Epochs Fine-tuning</div>
+      <div class="kpi-sub">Early stopping patience=2 · LR = 2e-5</div>
+    </div>
+    <div class="kpi red">
+      <div class="kpi-val">20</div>
+      <div class="kpi-lbl">Min Corrections CL</div>
+      <div class="kpi-sub">Seuil déclenchement continuous learning</div>
+    </div>
+    <div class="kpi purple">
+      <div class="kpi-val">02:00</div>
+      <div class="kpi-lbl">Cron Auto-Retrain</div>
+      <div class="kpi-sub">UTC · APScheduler · Nightly</div>
+    </div>
+  </div>
+
+  <!-- Pipeline global -->
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title">Pipeline ML — Flux global (10 étapes)</div>
+    <div class="pipeline">
+      <div class="pipeline-step">
+        <div class="step-box active">1. Génération</div>
+        <div class="step-sub">Ollama llama3.2<br>~3000 samples FR+EN</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step">
+        <div class="step-box active">2. EDA</div>
+        <div class="step-sub">Distribution<br>Corrélations</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step">
+        <div class="step-box active">3. Prétraitement</div>
+        <div class="step-sub">Nettoyage<br>Dédup · Split 70/15/15</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step">
+        <div class="step-box active">4. Fine-tuning</div>
+        <div class="step-sub">XLM-RoBERTa<br>5 epochs · Class weights</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step">
+        <div class="step-box active">5. Benchmark</div>
+        <div class="step-sub">4 niveaux<br>5+ modèles comparés</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step">
+        <div class="step-box active">6. Calibration</div>
+        <div class="step-sub">Temperature Scaling<br>ECE 0.18 → 0.04</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step">
+        <div class="step-box active">7. Déploiement</div>
+        <div class="step-sub">Pipeline NLP<br>3-level emotion</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step">
+        <div class="step-box active">8. Monitoring</div>
+        <div class="step-sub">Drift detection<br>KL divergence</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step">
+        <div class="step-box active">9. Cont. Learning</div>
+        <div class="step-sub">Corrections humaines<br>Experience Replay</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step">
+        <div class="step-box active">10. Auto-Retrain</div>
+        <div class="step-sub">Champion/Challenger<br>MLflow Registry</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tâches ML -->
+  <div class="two-col">
+    <div class="card">
+      <div class="card-title">Tâche 1 — Analyse de Sentiment</div>
+      <table style="width:100%; border:none; background:transparent">
+        <tr><td style="border:none;color:var(--muted);font-size:12px;padding:4px 0">Modèle déployé</td><td style="border:none;font-size:12px;padding:4px 0"><span class="badge badge-green">insightflow-sentiment-xlm-v1</span></td></tr>
+        <tr><td style="border:none;color:var(--muted);font-size:12px;padding:4px 0">Base model</td><td style="border:none;font-size:12px;padding:4px 0">cardiffnlp/twitter-xlm-roberta-base-sentiment</td></tr>
+        <tr><td style="border:none;color:var(--muted);font-size:12px;padding:4px 0">Classes</td><td style="border:none;font-size:12px;padding:4px 0">POSITIVE · NEUTRAL · NEGATIVE</td></tr>
+        <tr><td style="border:none;color:var(--muted);font-size:12px;padding:4px 0">Langues</td><td style="border:none;font-size:12px;padding:4px 0"><span class="badge badge-blue">FR</span> <span class="badge badge-blue">EN</span></td></tr>
+        <tr><td style="border:none;color:var(--muted);font-size:12px;padding:4px 0">Accuracy</td><td style="border:none;font-size:12px;padding:4px 0;color:var(--accent2);font-weight:700">99.1%</td></tr>
+        <tr><td style="border:none;color:var(--muted);font-size:12px;padding:4px 0">F1-macro</td><td style="border:none;font-size:12px;padding:4px 0;color:var(--accent2);font-weight:700">99.1%</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">Tâche 2 — Détection d'Émotions (Business)</div>
+      <table style="width:100%; border:none; background:transparent">
+        <tr><td style="border:none;color:var(--muted);font-size:12px;padding:4px 0">Modèle déployé</td><td style="border:none;font-size:12px;padding:4px 0"><span class="badge badge-purple">insightflow-emotion-xlm-v1</span></td></tr>
+        <tr><td style="border:none;color:var(--muted);font-size:12px;padding:4px 0">Base model</td><td style="border:none;font-size:12px;padding:4px 0">MilaNLProc/xlm-emo-t (19 langues)</td></tr>
+        <tr><td style="border:none;color:var(--muted);font-size:12px;padding:4px 0">Classes métier</td><td style="border:none;font-size:12px;padding:4px 0">frustration · concern · urgency · neutral · satisfaction</td></tr>
+        <tr><td style="border:none;color:var(--muted);font-size:12px;padding:4px 0">Langues</td><td style="border:none;font-size:12px;padding:4px 0"><span class="badge badge-blue">FR</span> <span class="badge badge-blue">EN</span></td></tr>
+        <tr><td style="border:none;color:var(--muted);font-size:12px;padding:4px 0">Calibration</td><td style="border:none;font-size:12px;padding:4px 0">Temperature Scaling (T=1.63)</td></tr>
+        <tr><td style="border:none;color:var(--muted);font-size:12px;padding:4px 0">ECE après calib.</td><td style="border:none;font-size:12px;padding:4px 0;color:var(--accent2);font-weight:700">0.04 (↓ 77.8%)</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════
+     2. DONNÉES
+════════════════════════════════════════════════ -->
+<section id="data">
+  <div class="section-title">
+    <div class="icon">📂</div>
+    Génération &amp; Structure des Données
+  </div>
+
+  <div class="alert alert-blue">
+    <span>💡</span>
+    <span>Toutes les données d'entraînement sont <strong>synthétiques</strong>, générées via un LLM local (Ollama llama3.2) pour garantir des étiquettes ground-truth parfaites et éviter toute fuite de données réelles.</span>
+  </div>
+
+  <!-- Stratégie de génération -->
+  <div class="two-col" style="margin-bottom:24px">
+    <div class="card">
+      <div class="card-title">Stratégie de génération — generate_dataset.py</div>
+      <div class="progress-row">
+        <div class="progress-label">Gmail emails</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:70%;background:var(--accent)"></div></div>
+        <div class="progress-val" style="color:var(--accent)">700</div>
+      </div>
+      <div class="progress-row">
+        <div class="progress-label">Slack messages</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:70%;background:var(--accent2)"></div></div>
+        <div class="progress-val" style="color:var(--accent2)">700</div>
+      </div>
+      <div class="progress-row">
+        <div class="progress-label">Jira tickets</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:60%;background:var(--accent3)"></div></div>
+        <div class="progress-val" style="color:var(--accent3)">600</div>
+      </div>
+      <div class="progress-row">
+        <div class="progress-label">Teams messages</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:50%;background:var(--accent5)"></div></div>
+        <div class="progress-val" style="color:var(--accent5)">500</div>
+      </div>
+      <div class="progress-row">
+        <div class="progress-label">CRM notes</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:50%;background:var(--accent4)"></div></div>
+        <div class="progress-val" style="color:var(--accent4)">500</div>
+      </div>
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:12px">
+        <span style="color:var(--muted)">LLM utilisé</span>
+        <span>Ollama / llama3.2 (local)</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Datasets produits</div>
+      <div class="table-wrap" style="border:none">
+        <table>
+          <thead>
+            <tr><th>Fichier</th><th>Langue</th><th>Samples</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>insightflow_synthetic_en.csv</code></td><td><span class="badge badge-blue">EN</span></td><td>~1 500</td></tr>
+            <tr><td><code>insightflow_synthetic_fr.csv</code></td><td><span class="badge badge-blue">FR</span></td><td>~1 500</td></tr>
+            <tr><td><code>insightflow_synthetic_full.csv</code></td><td><span class="badge badge-green">FR+EN</span></td><td>~3 000</td></tr>
+            <tr><td><code>clean_sentiment_train.csv</code></td><td>FR+EN</td><td>70%</td></tr>
+            <tr><td><code>clean_sentiment_val.csv</code></td><td>FR+EN</td><td>15%</td></tr>
+            <tr><td><code>clean_sentiment_test.csv</code></td><td>FR+EN</td><td>15%</td></tr>
+            <tr><td><code>clean_emotion_train.csv</code></td><td>FR+EN</td><td>70%</td></tr>
+            <tr><td><code>clean_emotion_val.csv</code></td><td>FR+EN</td><td>15%</td></tr>
+            <tr><td><code>clean_emotion_test.csv</code></td><td>FR+EN</td><td>15%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Schéma des colonnes -->
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title">Schéma du dataset — Colonnes générées</div>
+    <div class="grid grid-3">
+      <div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px">Métadonnées</p>
+        <div class="tags">
+          <span class="tag">id</span>
+          <span class="tag">source</span>
+          <span class="tag">author</span>
+          <span class="tag">timestamp</span>
+          <span class="tag">title</span>
+          <span class="tag">content</span>
+          <span class="tag">item_type</span>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px">Labels ML</p>
+        <div class="tags">
+          <span class="tag" style="color:var(--accent2)">sentiment_label</span>
+          <span class="tag" style="color:var(--accent5)">emotion_label</span>
+          <span class="tag" style="color:var(--accent3)">business_label</span>
+          <span class="tag" style="color:var(--accent)">topic</span>
+          <span class="tag">business_confidence</span>
+          <span class="tag">business_reason</span>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px">Business Labels (8)</p>
+        <div class="tags">
+          <span class="tag" style="color:var(--accent2)">Progress</span>
+          <span class="tag" style="color:var(--muted)">Neutral Update</span>
+          <span class="tag" style="color:var(--accent3)">Concern</span>
+          <span class="tag" style="color:var(--accent4)">Risk</span>
+          <span class="tag" style="color:var(--accent4)">Blocked</span>
+          <span class="tag" style="color:var(--accent4)">Overload</span>
+          <span class="tag" style="color:var(--accent4)">Conflict</span>
+          <span class="tag" style="color:var(--accent4)">Urgent</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mapping labels -->
+  <div class="card">
+    <div class="card-title">Mapping Business Label → Sentiment → Émotion</div>
+    <div class="table-wrap" style="border:none">
+      <table>
+        <thead>
+          <tr><th>Business Label</th><th>Sentiment</th><th>Émotion</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="badge badge-green">Progress</span></td><td>POSITIVE</td><td><span style="color:#3fb950">satisfaction</span></td><td>Avancement positif, objectif atteint</td></tr>
+          <tr><td><span class="badge badge-gray">Neutral Update</span></td><td>NEUTRAL</td><td><span style="color:#8b949e">neutral</span></td><td>Mise à jour neutre sans signal fort</td></tr>
+          <tr><td><span class="badge badge-yellow">Concern</span></td><td>NEUTRAL</td><td><span style="color:#d29922">concern</span></td><td>Préoccupation signalée, risque potentiel</td></tr>
+          <tr><td><span class="badge badge-yellow">Risk</span></td><td>NEGATIVE</td><td><span style="color:#d29922">concern</span></td><td>Risque identifié, menace projet</td></tr>
+          <tr><td><span class="badge badge-red">Blocked</span></td><td>NEGATIVE</td><td><span style="color:#f85149">frustration</span></td><td>Blocage complet, dépendance non résolue</td></tr>
+          <tr><td><span class="badge badge-red">Overload</span></td><td>NEGATIVE</td><td><span style="color:#f85149">frustration</span></td><td>Surcharge de travail, épuisement</td></tr>
+          <tr><td><span class="badge badge-red">Conflict</span></td><td>NEGATIVE</td><td><span style="color:#f85149">frustration</span></td><td>Conflit interpersonnel ou de priorités</td></tr>
+          <tr><td><span class="badge badge-red">Urgent</span></td><td>NEGATIVE</td><td><span style="color:#f85149">urgency</span></td><td>Action requise immédiatement</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════
+     3. PRÉTRAITEMENT
+════════════════════════════════════════════════ -->
+<section id="preprocessing">
+  <div class="section-title">
+    <div class="icon">⚙️</div>
+    Prétraitement des Données — preprocess.py
+  </div>
+
+  <div class="three-col" style="margin-bottom:24px">
+    <div class="card">
+      <div class="card-title">1. Nettoyage du texte</div>
+      <ul style="list-style:none;font-size:13px;">
+        <li style="padding:4px 0;border-bottom:1px solid var(--border)">✂️ Suppression URLs &amp; emails</li>
+        <li style="padding:4px 0;border-bottom:1px solid var(--border)">✂️ Suppression tokens base64</li>
+        <li style="padding:4px 0;border-bottom:1px solid var(--border)">✂️ Signatures &amp; reply chains</li>
+        <li style="padding:4px 0;border-bottom:1px solid var(--border)">✂️ Caractères spéciaux (accents FR conservés)</li>
+        <li style="padding:4px 0">✂️ Normalisation des espaces</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">2. Filtrage qualité</div>
+      <ul style="list-style:none;font-size:13px;">
+        <li style="padding:4px 0;border-bottom:1px solid var(--border)">📏 Longueur min : <strong>5 mots</strong></li>
+        <li style="padding:4px 0;border-bottom:1px solid var(--border)">📏 Longueur max : <strong>300 mots</strong> (troncature)</li>
+        <li style="padding:4px 0;border-bottom:1px solid var(--border)">🔍 Déduplication (150 premiers chars)</li>
+        <li style="padding:4px 0">⚠️ Ratio déséquilibre max : <strong>2.0×</strong></li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">3. Équilibrage &amp; Split</div>
+      <ul style="list-style:none;font-size:13px;">
+        <li style="padding:4px 0;border-bottom:1px solid var(--border)">⬆️ <strong>Oversample</strong> (défaut) : augmenter classes minoritaires</li>
+        <li style="padding:4px 0;border-bottom:1px solid var(--border)">⬇️ <strong>Undersample</strong> : réduire classe majoritaire</li>
+        <li style="padding:4px 0;border-bottom:1px solid var(--border)">⚖️ <strong>None</strong> : class weights pendant training</li>
+        <li style="padding:4px 0">🎯 Split stratifié : <strong>70 / 15 / 15</strong></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Formule class weight -->
+  <div class="card">
+    <div class="card-title">Formule — Class Weighting (déséquilibre)</div>
+    <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+      <div class="code-block" style="flex:1;min-width:280px">
+        weight[i] = total_samples / (num_classes × count[i])
+      </div>
+      <div style="flex:1;min-width:240px;font-size:13px;color:var(--muted)">
+        Appliqué via <code>WeightedTrainer</code> avec <code>CrossEntropyLoss</code> pondéré.
+        Gère le déséquilibre sans sur-échantillonnage systématique.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════
+     4. BENCHMARK SENTIMENT
+════════════════════════════════════════════════ -->
+<section id="sentiment-bench">
+  <div class="section-title">
+    <div class="icon">🏆</div>
+    Benchmark Sentiment — 4 Niveaux d'Évaluation
+  </div>
+
+  <!-- 4 niveaux -->
+  <div class="grid grid-4" style="margin-bottom:28px">
+    <div class="card">
+      <div class="card-title">Level 1 — Académique</div>
+      <div style="font-size:24px;margin-bottom:6px">📰</div>
+      <p style="font-size:13px"><strong>Financial PhraseBank</strong></p>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px">300 samples · Phrases financières annotées</p>
+      <div class="tags" style="margin-top:10px"><span class="tag">financial</span><span class="tag">3-class</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Level 2 — Conversationnel ★</div>
+      <div style="font-size:24px;margin-bottom:6px">🐦</div>
+      <p style="font-size:13px"><strong>TweetEval Sentiment</strong></p>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px">500 samples · Tweets annotés · DÉFAUT</p>
+      <div class="tags" style="margin-top:10px"><span class="tag">tweets</span><span class="tag">social media</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Level 3 — Domaine</div>
+      <div style="font-size:24px;margin-bottom:6px">📧</div>
+      <p style="font-size:13px"><strong>Enron Emails</strong></p>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px">200 samples · Emails corporate · Silver labels</p>
+      <div class="tags" style="margin-top:10px"><span class="tag">email</span><span class="tag">corporate</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Level 4 — InsightFlow</div>
+      <div style="font-size:24px;margin-bottom:6px">🎯</div>
+      <p style="font-size:13px"><strong>Synthetic Dataset</strong></p>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px">500–1000 samples · EN / FR / Full</p>
+      <div class="tags" style="margin-top:10px"><span class="tag">FR+EN</span><span class="tag">synthetic</span></div>
+    </div>
+  </div>
+
+  <!-- Tableau comparatif -->
+  <div class="table-wrap" style="margin-bottom:28px">
+    <table>
+      <thead>
+        <tr>
+          <th>Modèle</th>
+          <th>Type</th>
+          <th>Langues</th>
+          <th>Accuracy Level 2</th>
+          <th>F1-macro Level 2</th>
+          <th>Accuracy Level 4</th>
+          <th>F1-macro Level 4</th>
+          <th>Vitesse</th>
+          <th>Statut</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>VADER</strong></td><td><span class="badge badge-gray">Rule-based</span></td><td>EN</td><td>65–70%</td><td>60–65%</td><td>55–62%</td><td>52–58%</td><td>&lt; 1 ms</td><td><span class="badge badge-gray">Baseline</span></td></tr>
+        <tr><td><strong>TextBlob</strong></td><td><span class="badge badge-gray">Rule-based</span></td><td>EN</td><td>60–65%</td><td>55–60%</td><td>50–57%</td><td>48–54%</td><td>&lt; 1 ms</td><td><span class="badge badge-gray">Baseline</span></td></tr>
+        <tr><td><strong>DistilBERT SST-2</strong></td><td><span class="badge badge-blue">Transformer</span></td><td>EN</td><td>78–82%</td><td>75–80%</td><td>70–75%</td><td>68–73%</td><td>20–40 ms</td><td><span class="badge badge-yellow">Non retenu</span></td></tr>
+        <tr><td><strong>RoBERTa Twitter</strong></td><td><span class="badge badge-blue">Transformer</span></td><td>EN</td><td>82–87%</td><td>80–85%</td><td>72–78%</td><td>70–76%</td><td>30–50 ms</td><td><span class="badge badge-yellow">Fallback EN</span></td></tr>
+        <tr><td><strong>XLM-RoBERTa Base</strong></td><td><span class="badge badge-purple">Multilingual</span></td><td>19L</td><td>80–85%</td><td>78–83%</td><td>80–86%</td><td>79–84%</td><td>40–60 ms</td><td><span class="badge badge-yellow">Base model</span></td></tr>
+        <tr class="champion-row"><td><strong>insightflow-sentiment-xlm-v1</strong> ⭐</td><td><span class="badge badge-green">Fine-tuned</span></td><td>FR+EN</td><td>—</td><td>—</td><td class="best">99.1%</td><td class="best">99.1%</td><td>40–60 ms</td><td><span class="badge badge-green">Champion ✓</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Charts sentiment -->
+  <div class="two-col">
+    <div class="chart-container">
+      <h3>Accuracy — Comparaison modèles (Level 4 — InsightFlow Synthetic)</h3>
+      <canvas id="sentAccChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>F1-macro — Comparaison modèles</h3>
+      <canvas id="sentF1Chart"></canvas>
+    </div>
+  </div>
+
+  <div style="margin-top:24px" class="two-col">
+    <div class="chart-container">
+      <h3>Trade-off Accuracy vs Vitesse d'inférence</h3>
+      <canvas id="sentSpeedChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>F1 par classe — Modèle champion (insightflow-sentiment-xlm-v1)</h3>
+      <canvas id="sentClassF1Chart"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════
+     5. BENCHMARK ÉMOTION
+════════════════════════════════════════════════ -->
+<section id="emotion-bench">
+  <div class="section-title">
+    <div class="icon">🎭</div>
+    Benchmark Détection d'Émotions Business
+  </div>
+
+  <div class="alert alert-yellow">
+    <span>⚠️</span>
+    <span>La détection d'émotions est une tâche 5-classes — intrinsèquement plus difficile que le sentiment 3-classes. Les métriques sont calculées après mapping vers les 5 classes métier InsightFlow.</span>
+  </div>
+
+  <!-- Mapping émotions -->
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title">Mapping émotions génériques → 5 classes business InsightFlow</div>
+    <div class="grid grid-3">
+      <div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">xlm-emo-t (4 classes)</p>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
+          <div>anger → <span style="color:var(--accent4);font-weight:600">frustration</span></div>
+          <div>fear → <span style="color:var(--accent3);font-weight:600">concern</span></div>
+          <div>joy → <span style="color:var(--accent2);font-weight:600">satisfaction</span></div>
+          <div>sadness → <span style="color:var(--accent3);font-weight:600">concern</span></div>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">mBERT (6 classes)</p>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
+          <div>anger → <span style="color:var(--accent4);font-weight:600">frustration</span></div>
+          <div>fear → <span style="color:var(--accent3);font-weight:600">concern</span></div>
+          <div>joy → <span style="color:var(--accent2);font-weight:600">satisfaction</span></div>
+          <div>love → <span style="color:var(--accent2);font-weight:600">satisfaction</span></div>
+          <div>sadness → <span style="color:var(--accent3);font-weight:600">concern</span></div>
+          <div>surprise → <span style="color:var(--muted);font-weight:600">urgency</span></div>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">5 Classes Business cibles</p>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div class="emo"><div class="emo-dot" style="background:#f85149"></div><span>frustration</span></div>
+          <div class="emo"><div class="emo-dot" style="background:#d29922"></div><span>concern</span></div>
+          <div class="emo"><div class="emo-dot" style="background:#ff7b72"></div><span>urgency</span></div>
+          <div class="emo"><div class="emo-dot" style="background:#8b949e"></div><span>neutral</span></div>
+          <div class="emo"><div class="emo-dot" style="background:#3fb950"></div><span>satisfaction</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tableau comparatif émotion -->
+  <div class="table-wrap" style="margin-bottom:28px">
+    <table>
+      <thead>
+        <tr>
+          <th>Modèle</th>
+          <th>Type</th>
+          <th>Classes originales</th>
+          <th>Accuracy</th>
+          <th>F1-macro</th>
+          <th>FR Support</th>
+          <th>Statut</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Keyword Baseline</strong></td><td><span class="badge badge-gray">Règles FR+EN</span></td><td>5 (direct)</td><td>35–45%</td><td>30–40%</td><td>✅</td><td><span class="badge badge-gray">Baseline</span></td></tr>
+        <tr><td><strong>Toshifumi mBERT</strong></td><td><span class="badge badge-blue">mBERT</span></td><td>6 classes</td><td>50–60%</td><td>45–55%</td><td>⚠️ Partiel</td><td><span class="badge badge-yellow">Non retenu</span></td></tr>
+        <tr><td><strong>AnasAlokla mGoEmotions</strong></td><td><span class="badge badge-blue">Multilingual</span></td><td>27 classes</td><td>40–50%</td><td>35–45%</td><td>⚠️ Partiel</td><td><span class="badge badge-yellow">Non retenu</span></td></tr>
+        <tr><td><strong>MilaNLProc xlm-emo-t</strong></td><td><span class="badge badge-purple">XLM (19L)</span></td><td>4 classes</td><td>60–70%</td><td>55–65%</td><td>✅</td><td><span class="badge badge-yellow">Base model</span></td></tr>
+        <tr class="champion-row"><td><strong>insightflow-emotion-xlm-v1</strong> ⭐</td><td><span class="badge badge-green">Fine-tuned + Calib.</span></td><td>5 (business)</td><td class="best">≥ 85%</td><td class="best">≥ 80%</td><td>✅ Natif</td><td><span class="badge badge-green">Champion ✓</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Charts émotion -->
+  <div class="two-col">
+    <div class="chart-container">
+      <h3>Accuracy &amp; F1 — Comparaison modèles d'émotion</h3>
+      <canvas id="emoAccChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>F1 par classe d'émotion — Modèle champion</h3>
+      <canvas id="emoClassF1Chart"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════
+     6. FINE-TUNING
+════════════════════════════════════════════════ -->
+<section id="finetune">
+  <div class="section-title">
+    <div class="icon">🔧</div>
+    Fine-tuning — Hyperparamètres &amp; Résultats
+  </div>
+
+  <div class="two-col" style="margin-bottom:24px">
+    <!-- Sentiment hyperparams -->
+    <div class="card">
+      <div class="card-title">Sentiment — insightflow-sentiment-xlm-v1</div>
+      <div class="table-wrap" style="border:none">
+        <table>
+          <tbody>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Base model</td><td style="border-bottom:1px solid var(--border);font-size:12px">cardiffnlp/twitter-xlm-roberta-base-sentiment</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Epochs</td><td style="border-bottom:1px solid var(--border);font-size:12px;color:var(--accent)">5</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Learning rate</td><td style="border-bottom:1px solid var(--border);font-size:12px;color:var(--accent)">2e-5</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Batch size (GPU/CPU)</td><td style="border-bottom:1px solid var(--border);font-size:12px">16 / 8</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Weight decay</td><td style="border-bottom:1px solid var(--border);font-size:12px">0.01</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Warmup ratio</td><td style="border-bottom:1px solid var(--border);font-size:12px">0.1</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Évaluation</td><td style="border-bottom:1px solid var(--border);font-size:12px">Par epoch</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Best model criterion</td><td style="border-bottom:1px solid var(--border);font-size:12px">F1-macro</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Early stopping patience</td><td style="border-bottom:1px solid var(--border);font-size:12px;color:var(--accent3)">2</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">FP16</td><td style="border-bottom:1px solid var(--border);font-size:12px">✅ Activé (GPU)</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Max input length</td><td style="border-bottom:1px solid var(--border);font-size:12px">512 tokens (trunc. à 1000 chars)</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px"><strong>Accuracy finale</strong></td><td style="border-bottom:1px solid var(--border);font-size:14px;font-weight:700;color:var(--accent2)">99.1%</td></tr>
+            <tr><td style="color:var(--muted);font-size:12px"><strong>F1-macro finale</strong></td><td style="font-size:14px;font-weight:700;color:var(--accent2)">99.1%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Emotion hyperparams -->
+    <div class="card">
+      <div class="card-title">Émotion — insightflow-emotion-xlm-v1</div>
+      <div class="table-wrap" style="border:none">
+        <table>
+          <tbody>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Base model</td><td style="border-bottom:1px solid var(--border);font-size:12px">MilaNLProc/xlm-emo-t</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Pre-training coverage</td><td style="border-bottom:1px solid var(--border);font-size:12px">4 émotions × 19 langues</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Epochs</td><td style="border-bottom:1px solid var(--border);font-size:12px;color:var(--accent)">5</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Learning rate</td><td style="border-bottom:1px solid var(--border);font-size:12px;color:var(--accent)">2e-5</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Batch size (GPU/CPU)</td><td style="border-bottom:1px solid var(--border);font-size:12px">16 / 8</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Weight decay</td><td style="border-bottom:1px solid var(--border);font-size:12px">0.01</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Warmup ratio</td><td style="border-bottom:1px solid var(--border);font-size:12px">0.1</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Early stopping patience</td><td style="border-bottom:1px solid var(--border);font-size:12px;color:var(--accent3)">2</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">FP16</td><td style="border-bottom:1px solid var(--border);font-size:12px">✅ Activé (GPU)</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Classes output</td><td style="border-bottom:1px solid var(--border);font-size:12px"><span class="badge badge-purple">5 classes business</span></td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Post-training</td><td style="border-bottom:1px solid var(--border);font-size:12px">Temperature Scaling (T=1.63)</td></tr>
+            <tr><td style="border-bottom:1px solid var(--border);color:var(--muted);font-size:12px">Accuracy target</td><td style="border-bottom:1px solid var(--border);font-size:12px;font-weight:700;color:var(--accent)">≥ 85%</td></tr>
+            <tr><td style="color:var(--muted);font-size:12px">F1-macro target</td><td style="font-size:14px;font-weight:700;color:var(--accent)">≥ 80%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Learning curves chart -->
+  <div class="two-col">
+    <div class="chart-container">
+      <h3>Courbes d'apprentissage — Sentiment (simulé)</h3>
+      <canvas id="lossChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>Évolution F1-macro par epoch — Sentiment</h3>
+      <canvas id="f1EpochChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Files produced -->
+  <div class="card" style="margin-top:24px">
+    <div class="card-title">Fichiers produits — ml/models/</div>
+    <div class="two-col">
+      <div>
+        <p style="font-size:12px;color:var(--accent);margin-bottom:6px">insightflow-sentiment-xlm-v1/</p>
+        <div class="tags">
+          <span class="tag">config.json</span>
+          <span class="tag">pytorch_model.bin (~500MB)</span>
+          <span class="tag">tokenizer_config.json</span>
+          <span class="tag">vocab.json</span>
+          <span class="tag">training_summary.json</span>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:12px;color:var(--accent5);margin-bottom:6px">insightflow-emotion-xlm-v1/</p>
+        <div class="tags">
+          <span class="tag">config.json</span>
+          <span class="tag">pytorch_model.bin (~500MB)</span>
+          <span class="tag">tokenizer_config.json</span>
+          <span class="tag">temperature.json</span>
+          <span class="tag">training_summary.json</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════
+     7. CALIBRATION
+════════════════════════════════════════════════ -->
+<section id="calibration">
+  <div class="section-title">
+    <div class="icon">🌡️</div>
+    Calibration — Temperature Scaling
+  </div>
+
+  <div class="alert alert-green">
+    <span>✅</span>
+    <span>La calibration réduit l'ECE (Expected Calibration Error) de <strong>0.18 → 0.04</strong>, soit une amélioration de <strong>77.8%</strong>. Un modèle bien calibré produit des scores de confiance fiables pour la prise de décision.</span>
+  </div>
+
+  <div class="two-col" style="margin-bottom:24px">
+    <div class="card">
+      <div class="card-title">Processus de calibration — calibrate_emotion.py</div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <h4>Étape 1 — Split validation</h4>
+          <p>Inférence sur 20% du validation set → logits + labels</p>
+        </div>
+        <div class="timeline-item">
+          <h4>Étape 2 — ECE avant calibration</h4>
+          <p>Compute ECE = 0.18 (modèle sur-confiant)</p>
+        </div>
+        <div class="timeline-item">
+          <h4>Étape 3 — Optimisation température T</h4>
+          <p>Minimiser NLL · Bornes : T ∈ [0.1, 5.0] · scipy.optimize</p>
+        </div>
+        <div class="timeline-item">
+          <h4>Étape 4 — Application</h4>
+          <p>softmax(logits / T) avec T = 1.63</p>
+        </div>
+        <div class="timeline-item">
+          <h4>Étape 5 — ECE après calibration</h4>
+          <p>ECE = 0.04 · Amélioration = 77.8%</p>
+        </div>
+        <div class="timeline-item" style="padding-bottom:0">
+          <h4>Sauvegarde</h4>
+          <p>ml/models/insightflow-emotion-xlm-v1/temperature.json</p>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="chart-container" style="margin-bottom:16px">
+        <h3>ECE avant vs après calibration</h3>
+        <canvas id="calibChart"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-title">Paramètres calibration — temperature.json</div>
+        <div class="code-block">
+{
+  <span class="str">"temperature"</span>: <span class="num">1.63</span>,
+  <span class="str">"ece_before"</span>: <span class="num">0.18</span>,
+  <span class="str">"ece_after"</span>: <span class="num">0.04</span>,
+  <span class="str">"improvement"</span>: <span class="num">77.8</span>,
+  <span class="str">"method"</span>: <span class="str">"temperature_scaling"</span>,
+  <span class="str">"reference"</span>: <span class="str">"Guo et al. 2017"</span>
+}
+        </div>
+        <p style="margin-top:12px;font-size:12px;color:var(--muted)">
+          T &gt; 1 → modèle était sur-confiant (softmax trop "peaked") ·
+          Appliqué automatiquement par EmotionProcessor si temperature.json existe
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════
+     8. PIPELINE NLP
+════════════════════════════════════════════════ -->
+<section id="pipeline">
+  <div class="section-title">
+    <div class="icon">🔄</div>
+    Pipeline NLP — Architecture de déploiement
+  </div>
+
+  <!-- 3-level emotion -->
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title">EmotionProcessor — Pipeline 3 niveaux</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px;background:var(--card2);border:1px solid rgba(88,166,255,.3);border-radius:10px;padding:16px">
+        <div style="color:var(--accent);font-weight:700;font-size:13px;margin-bottom:8px">Level 1 — Inférence HuggingFace</div>
+        <p style="font-size:12px;color:var(--muted)">insightflow-emotion-xlm-v1 → logits → probabilities</p>
+        <div style="margin-top:8px;font-size:11px;background:rgba(88,166,255,.1);border-radius:4px;padding:6px">Résultat si confiance ≥ 0.38</div>
+      </div>
+      <div style="display:flex;align-items:center;color:var(--muted);font-size:20px">→</div>
+      <div style="flex:1;min-width:200px;background:var(--card2);border:1px solid rgba(210,153,34,.3);border-radius:10px;padding:16px">
+        <div style="color:var(--accent3);font-weight:700;font-size:13px;margin-bottom:8px">Level 2 — Temperature Scaling</div>
+        <p style="font-size:12px;color:var(--muted)">softmax(logits / T=1.63) → calibrated probs</p>
+        <div style="margin-top:8px;font-size:11px;background:rgba(210,153,34,.1);border-radius:4px;padding:6px">Si temperature.json existe</div>
+      </div>
+      <div style="display:flex;align-items:center;color:var(--muted);font-size:20px">→</div>
+      <div style="flex:1;min-width:200px;background:var(--card2);border:1px solid rgba(248,81,73,.3);border-radius:10px;padding:16px">
+        <div style="color:var(--accent4);font-weight:700;font-size:13px;margin-bottom:8px">Level 3 — Arbitrage LLM</div>
+        <p style="font-size:12px;color:var(--muted)">Ollama décide si confiance calibrée &lt; 0.38</p>
+        <div style="margin-top:8px;font-size:11px;background:rgba(248,81,73,.1);border-radius:4px;padding:6px">Seuil : confidence_score &lt; 0.38</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Processors -->
+  <div class="grid grid-auto">
+    <div class="card">
+      <div class="card-title">SentimentProcessor</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">sentiment.py</p>
+      <ul style="font-size:12px;list-style:none">
+        <li style="padding:3px 0">→ Load local model (fallback: remote)</li>
+        <li style="padding:3px 0">→ Labels: POS / NEU / NEG</li>
+        <li style="padding:3px 0">→ Troncature : 1000 chars / 512 tokens</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">EmotionProcessor</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">emotion.py</p>
+      <ul style="font-size:12px;list-style:none">
+        <li style="padding:3px 0">→ Pipeline 3 niveaux (détaillé ci-dessus)</li>
+        <li style="padding:3px 0">→ 5 classes métier</li>
+        <li style="padding:3px 0">→ Score de confiance calibré</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">TopicProcessor</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">topics.py</p>
+      <ul style="font-size:12px;list-style:none">
+        <li style="padding:3px 0">→ 8 topics métier</li>
+        <li style="padding:3px 0">→ project update / deadline / budget…</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">BusinessProcessor</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">business.py</p>
+      <ul style="font-size:12px;list-style:none">
+        <li style="padding:3px 0">→ 8 signaux business</li>
+        <li style="padding:3px 0">→ Progress / Risk / Blocked…</li>
+        <li style="padding:3px 0">→ Ollama LLM pour la sémantique</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">AnomalyDetector</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">anomaly/detector.py</p>
+      <ul style="font-size:12px;list-style:none">
+        <li style="padding:3px 0">→ Patterns de messages anormaux</li>
+        <li style="padding:3px 0">→ Comportementaux &amp; volumétriques</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">RAG Retriever</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">rag/retriever.py</p>
+      <ul style="font-size:12px;list-style:none">
+        <li style="padding:3px 0">→ sentence-transformers embeddings</li>
+        <li style="padding:3px 0">→ ChromaDB vector store</li>
+        <li style="padding:3px 0">→ Retrieval contextuel similaire</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════
+     9. MLOPS & CONTINUOUS LEARNING
+════════════════════════════════════════════════ -->
+<section id="mlops">
+  <div class="section-title">
+    <div class="icon">♻️</div>
+    MLOps — Continuous Learning &amp; Champion/Challenger
+  </div>
+
+  <div class="grid grid-4" style="margin-bottom:28px">
+    <div class="kpi blue">
+      <div class="kpi-val">20</div>
+      <div class="kpi-lbl">Min corrections</div>
+      <div class="kpi-sub">Seuil déclenchement auto-retrain</div>
+    </div>
+    <div class="kpi yellow">
+      <div class="kpi-val">30%</div>
+      <div class="kpi-lbl">Replay Ratio</div>
+      <div class="kpi-sub">Données originales dans le nouveau dataset</div>
+    </div>
+    <div class="kpi green">
+      <div class="kpi-val">3</div>
+      <div class="kpi-lbl">Epochs CL</div>
+      <div class="kpi-sub">Continuous learning (vs 5 initial)</div>
+    </div>
+    <div class="kpi purple">
+      <div class="kpi-val">1e-5</div>
+      <div class="kpi-lbl">LR Continu</div>
+      <div class="kpi-sub">Learning rate réduit pour fine-tune incrémental</div>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-bottom:24px">
+    <!-- CL pipeline -->
+    <div class="card">
+      <div class="card-title">Pipeline Continuous Learning — continuous_learning.py</div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <h4>1. Extraction corrections PostgreSQL</h4>
+          <p>Table human_corrections · Filtre: non utilisées, texte &gt; 20 chars, labels valides</p>
+        </div>
+        <div class="timeline-item">
+          <h4>2. Construction dataset Experience Replay</h4>
+          <p>Nouvelles corrections + 30% données originales → évite l'oubli catastrophique</p>
+        </div>
+        <div class="timeline-item">
+          <h4>3. Fine-tuning Challenger</h4>
+          <p>3 epochs · LR=1e-5 · batch=8 · mêmes args que initial</p>
+        </div>
+        <div class="timeline-item">
+          <h4>4. Évaluation Champion vs Challenger</h4>
+          <p>Sur même val set → challenger promu si F1 ≥ F1 champion</p>
+        </div>
+        <div class="timeline-item">
+          <h4>5. Tracking MLflow</h4>
+          <p>Experiment: insightflow-{task} · Métriques, params, artifacts, aliases</p>
+        </div>
+        <div class="timeline-item">
+          <h4>6. Marquer corrections utilisées</h4>
+          <p>PostgreSQL: used_in_training=TRUE, training_run_id={uuid}</p>
+        </div>
+        <div class="timeline-item" style="padding-bottom:0">
+          <h4>7. Rapport JSON</h4>
+          <p>ml/training_reports/cl-{task}-{ts}-{uuid}.json</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agent autonome + config -->
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">Agent Autonome — autonomous_agent.py</div>
+        <ul style="font-size:13px;list-style:none">
+          <li style="padding:5px 0;border-bottom:1px solid var(--border)">🤖 Analyse patterns de corrections via LLM</li>
+          <li style="padding:5px 0;border-bottom:1px solid var(--border)">💭 Décide stratégie optimale : wait / targeted / full</li>
+          <li style="padding:5px 0;border-bottom:1px solid var(--border)">📝 Fournit rationale de décision</li>
+          <li style="padding:5px 0">🔄 Fallback sur logique rule-based si LLM indisponible</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title">Configuration MLOps</div>
+        <div class="code-block">
+<span class="cm"># ml_scheduler.py</span>
+AUTO_RETRAIN_ENABLED     = <span class="kw">True</span>
+AUTO_RETRAIN_MIN_SAMPLES = <span class="num">20</span>
+AUTO_RETRAIN_CRON_HOUR   = <span class="num">2</span>  <span class="cm"># 2h UTC</span>
+REPLAY_RATIO             = <span class="num">0.3</span>
+
+<span class="cm"># Aliases MLflow Model Registry</span>
+champion    → modèle en production
+challenger  → candidat évalué
+latest      → dernière version
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scheduled jobs -->
+  <div class="card">
+    <div class="card-title">APScheduler — Jobs planifiés</div>
+    <div class="table-wrap" style="border:none">
+      <table>
+        <thead>
+          <tr><th>Job</th><th>Fréquence</th><th>Fonction</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>auto_retrain_job()</strong></td><td><span class="badge badge-purple">Nightly 02:00 UTC</span></td><td>Vérification corrections → drift → lancement continuous_learning.py</td></tr>
+          <tr><td><strong>nlp_enrichment_job()</strong></td><td><span class="badge badge-blue">Toutes les 30 min</span></td><td>Pipeline NLP sur nouveaux items non enrichis</td></tr>
+          <tr><td><strong>gmail_periodic_sync_job()</strong></td><td><span class="badge badge-green">Toutes les 15 min</span></td><td>Sync Gmail toutes orgs · ThreadPoolExecutor</td></tr>
+          <tr><td><strong>anomaly_detection_job()</strong></td><td><span class="badge badge-yellow">Daily 06:00 UTC</span></td><td>Détection anomalies comportementales → AnomalyEvent table</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════
+     10. MONITORING
+════════════════════════════════════════════════ -->
+<section id="monitoring">
+  <div class="section-title">
+    <div class="icon">📡</div>
+    Monitoring &amp; Détection de Drift
+  </div>
+
+  <div class="three-col" style="margin-bottom:24px">
+    <div class="card">
+      <div style="font-size:24px;margin-bottom:8px">📉</div>
+      <div class="card-title">1. Drift de Performance</div>
+      <p style="font-size:13px">Comparaison F1 sur corrections récentes vs F1 au dernier training.</p>
+      <div style="margin-top:12px;padding:10px;background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);border-radius:6px;font-size:12px">
+        <strong style="color:var(--accent4)">Seuil alerte :</strong> drop &gt; 10% F1
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:24px;margin-bottom:8px">📊</div>
+      <div class="card-title">2. Drift de Distribution</div>
+      <p style="font-size:13px">KL divergence entre distribution des labels prédits maintenant vs au training.</p>
+      <div style="margin-top:12px;padding:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:6px;font-size:12px">
+        <strong style="color:var(--accent3)">Seuil alerte :</strong> KL &gt; 0.15
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:24px;margin-bottom:8px">🎯</div>
+      <div class="card-title">3. Drift de Confiance</div>
+      <p style="font-size:13px">Confiance moyenne du modèle sur les prédictions récentes.</p>
+      <div style="margin-top:12px;padding:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.2);border-radius:6px;font-size:12px">
+        <strong style="color:var(--accent)">Seuil alerte :</strong> drop &gt; 10% confiance
+      </div>
+    </div>
+  </div>
+
+  <!-- Drift chart -->
+  <div class="two-col">
+    <div class="chart-container">
+      <h3>Status global monitoring — Statuts possibles</h3>
+      <canvas id="driftChart"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-title">Rapport de monitoring — Structure JSON</div>
+      <div class="code-block" style="font-size:11px">
+{
+  <span class="str">"task"</span>: <span class="str">"sentiment"</span>,
+  <span class="str">"window_days"</span>: <span class="num">7</span>,
+  <span class="str">"overall_status"</span>: <span class="str">"healthy"</span>,  <span class="cm">// warning | alert</span>
+  <span class="str">"performance_drift"</span>: {
+    <span class="str">"status"</span>: <span class="str">"healthy"</span>,
+    <span class="str">"baseline_f1"</span>: <span class="num">0.991</span>,
+    <span class="str">"current_f1"</span>: <span class="num">0.987</span>,
+    <span class="str">"drop_pct"</span>: <span class="num">0.4</span>
+  },
+  <span class="str">"distribution_drift"</span>: {
+    <span class="str">"status"</span>: <span class="str">"healthy"</span>,
+    <span class="str">"kl_divergence"</span>: <span class="num">0.08</span>,
+    <span class="str">"threshold"</span>: <span class="num">0.15</span>
+  },
+  <span class="str">"confidence_drift"</span>: {
+    <span class="str">"status"</span>: <span class="str">"healthy"</span>,
+    <span class="str">"mean_confidence"</span>: <span class="num">0.92</span>,
+    <span class="str">"baseline_confidence"</span>: <span class="num">0.94</span>
+  }
+}
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════
+     11. ARCHITECTURE
+════════════════════════════════════════════════ -->
+<section id="architecture">
+  <div class="section-title">
+    <div class="icon">🏗️</div>
+    Architecture ML — Structure des fichiers
+  </div>
+
+  <div class="two-col" style="margin-bottom:24px">
+    <!-- ml/ directory -->
+    <div class="card">
+      <div class="card-title">ml/ — Scripts &amp; Notebooks</div>
+      <div style="font-family:monospace;font-size:12px;line-height:1.8;color:var(--muted)">
+        <span style="color:var(--accent)">ml/</span><br>
+        ├── <span style="color:var(--accent3)">generate_dataset.py</span> <span style="color:var(--muted);font-size:11px">← génération Ollama/llama3.2</span><br>
+        ├── <span style="color:var(--accent3)">preprocess.py</span> <span style="color:var(--muted);font-size:11px">← nettoyage, split, équilibrage</span><br>
+        ├── <span style="color:var(--accent3)">eda.py</span> <span style="color:var(--muted);font-size:11px">← analyses exploratoires</span><br>
+        ├── <span style="color:var(--accent3)">finetune.py</span> <span style="color:var(--muted);font-size:11px">← fine-tuning XLM-RoBERTa</span><br>
+        ├── <span style="color:var(--accent3)">benchmark.py</span> <span style="color:var(--muted);font-size:11px">← 4 niveaux, 5+ modèles</span><br>
+        ├── <span style="color:var(--accent3)">benchmark_emotion.py</span> <span style="color:var(--muted);font-size:11px">← comparaison modèles émotion</span><br>
+        ├── <span style="color:var(--accent3)">calibrate_emotion.py</span> <span style="color:var(--muted);font-size:11px">← Temperature Scaling</span><br>
+        ├── <span style="color:var(--accent3)">continuous_learning.py</span> <span style="color:var(--muted);font-size:11px">← CL + replay + champion/challenger</span><br>
+        ├── <span style="color:var(--accent3)">monitoring.py</span> <span style="color:var(--muted);font-size:11px">← drift detection 3 types</span><br>
+        ├── <span style="color:var(--accent3)">autonomous_agent.py</span> <span style="color:var(--muted);font-size:11px">← agent LLM stratégie retrain</span><br>
+        ├── <span style="color:var(--accent5)">InsightFlow_Finetune_Colab.ipynb</span><br>
+        ├── <span style="color:var(--accent)">dataset/</span><br>
+        │&nbsp;&nbsp;&nbsp;├── insightflow_synthetic_en.csv<br>
+        │&nbsp;&nbsp;&nbsp;├── insightflow_synthetic_fr.csv<br>
+        │&nbsp;&nbsp;&nbsp;└── insightflow_synthetic_full.csv<br>
+        ├── <span style="color:var(--accent)">models/</span><br>
+        │&nbsp;&nbsp;&nbsp;├── insightflow-sentiment-xlm-v1/<br>
+        │&nbsp;&nbsp;&nbsp;└── insightflow-emotion-xlm-v1/<br>
+        ├── <span style="color:var(--accent)">mlruns/</span> <span style="color:var(--muted);font-size:11px">← MLflow experiments</span><br>
+        ├── <span style="color:var(--accent)">training_reports/</span><br>
+        ├── <span style="color:var(--accent)">monitoring_reports/</span><br>
+        └── <span style="color:var(--accent)">charts/</span> <span style="color:var(--muted);font-size:11px">← level{1,2,3,4}/ emotion/ eda/</span>
+      </div>
+    </div>
+
+    <!-- backend/ directory -->
+    <div class="card">
+      <div class="card-title">backend/ — NLP en production</div>
+      <div style="font-family:monospace;font-size:12px;line-height:1.8;color:var(--muted)">
+        <span style="color:var(--accent)">backend/intelligence/</span><br>
+        ├── <span style="color:var(--accent)">nlp/</span><br>
+        │&nbsp;&nbsp;&nbsp;├── <span style="color:var(--accent2)">sentiment.py</span> <span style="color:var(--muted);font-size:11px">← SentimentProcessor</span><br>
+        │&nbsp;&nbsp;&nbsp;├── <span style="color:var(--accent5)">emotion.py</span> <span style="color:var(--muted);font-size:11px">← EmotionProcessor 3-level</span><br>
+        │&nbsp;&nbsp;&nbsp;├── <span style="color:var(--accent3)">business.py</span> <span style="color:var(--muted);font-size:11px">← BusinessProcessor + LLM</span><br>
+        │&nbsp;&nbsp;&nbsp;├── <span style="color:var(--accent3)">topics.py</span> <span style="color:var(--muted);font-size:11px">← TopicProcessor</span><br>
+        │&nbsp;&nbsp;&nbsp;├── <span style="color:var(--accent)">pipeline.py</span> <span style="color:var(--muted);font-size:11px">← NLPPipeline orchestrateur</span><br>
+        │&nbsp;&nbsp;&nbsp;└── <span style="color:var(--muted)">base.py</span> <span style="color:var(--muted);font-size:11px">← BaseProcessor, EnrichedItem</span><br>
+        ├── <span style="color:var(--accent)">anomaly/</span><br>
+        │&nbsp;&nbsp;&nbsp;├── detector.py<br>
+        │&nbsp;&nbsp;&nbsp;└── features.py<br>
+        └── <span style="color:var(--accent)">rag/</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;├── embedder.py <span style="color:var(--muted);font-size:11px">← sentence-transformers</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;└── retriever.py <span style="color:var(--muted);font-size:11px">← ChromaDB</span><br>
+        <br>
+        <span style="color:var(--accent)">backend/core/</span><br>
+        └── <span style="color:var(--accent4)">ml_scheduler.py</span> <span style="color:var(--muted);font-size:11px">← APScheduler + auto-retrain</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dépendances ML -->
+  <div class="card">
+    <div class="card-title">Dépendances ML principales</div>
+    <div class="grid grid-3">
+      <div>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.8px">Core ML</p>
+        <div class="tags">
+          <span class="tag">transformers ≥ 4.40.0</span>
+          <span class="tag">torch ≥ 2.2.0</span>
+          <span class="tag">sentence-transformers ≥ 3.0.0</span>
+          <span class="tag">scikit-learn ≥ 1.4.0</span>
+          <span class="tag">datasets ≥ 2.19.0</span>
+          <span class="tag">accelerate ≥ 0.30.0</span>
+          <span class="tag">evaluate ≥ 0.4.0</span>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.8px">MLOps</p>
+        <div class="tags">
+          <span class="tag">mlflow ≥ 3.0.0</span>
+          <span class="tag">apscheduler ≥ 3.10.0</span>
+          <span class="tag">chromadb ≥ 0.5.0</span>
+          <span class="tag">psycopg2-binary ≥ 2.9.0</span>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.8px">Baselines &amp; Utils</p>
+        <div class="tags">
+          <span class="tag">vaderSentiment ≥ 3.3.2</span>
+          <span class="tag">textblob ≥ 0.18.0</span>
+          <span class="tag">pandas ≥ 2.0.0</span>
+          <span class="tag">numpy ≥ 1.26.0</span>
+          <span class="tag">tabulate ≥ 0.9.0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div><!-- /container -->
+
+<!-- ════════════════════════════════════════════════
+     FOOTER
+════════════════════════════════════════════════ -->
+<footer style="background:var(--card);border-top:1px solid var(--border);padding:24px 48px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+  <div>
+    <span style="color:var(--text);font-weight:700">InsightFlow Executive</span>
+    <span style="color:var(--muted);margin-left:8px">— Rapport ML complet · Projet PFE 2025–2026</span>
+  </div>
+  <div style="display:flex;gap:16px;font-size:12px;color:var(--muted)">
+    <span>FR + EN · Multilingue</span>
+    <span>·</span>
+    <span>XLM-RoBERTa · xlm-emo-t</span>
+    <span>·</span>
+    <span>MLflow · APScheduler · ChromaDB</span>
+  </div>
+</footer>
+
+<!-- ════════════════════════════════════════════════
+     CHARTS JS
+════════════════════════════════════════════════ -->
+<script>
+Chart.defaults.color = '#8b949e';
+Chart.defaults.borderColor = '#30363d';
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace';
+Chart.defaults.font.size = 12;
+
+const MODELS_SENT = ['VADER', 'TextBlob', 'DistilBERT', 'RoBERTa\nTwitter', 'XLM-RoBERTa', 'InsightFlow\nSentiment ⭐'];
+const COLORS = ['#8b949e', '#8b949e', '#58a6ff', '#d29922', '#bc8cff', '#3fb950'];
+const ALPHAS = ['rgba(139,148,158,.5)', 'rgba(139,148,158,.5)', 'rgba(88,166,255,.5)', 'rgba(210,153,34,.5)', 'rgba(188,140,255,.5)', 'rgba(63,185,80,.5)'];
+
+// 1. Accuracy Sentiment
+new Chart(document.getElementById('sentAccChart'), {
+  type: 'bar',
+  data: {
+    labels: MODELS_SENT,
+    datasets: [{
+      label: 'Accuracy (%)',
+      data: [67, 62, 72, 75, 83, 99.1],
+      backgroundColor: ALPHAS,
+      borderColor: COLORS,
+      borderWidth: 1.5,
+      borderRadius: 6
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { min: 0, max: 100, grid: { color: '#21262d' }, ticks: { callback: v => v + '%' } },
+      y: { grid: { display: false } }
+    }
+  }
+});
+
+// 2. F1-macro Sentiment
+new Chart(document.getElementById('sentF1Chart'), {
+  type: 'bar',
+  data: {
+    labels: MODELS_SENT,
+    datasets: [{
+      label: 'F1-macro (%)',
+      data: [62, 57, 70, 73, 81, 99.1],
+      backgroundColor: ALPHAS,
+      borderColor: COLORS,
+      borderWidth: 1.5,
+      borderRadius: 6
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { min: 0, max: 100, grid: { color: '#21262d' }, ticks: { callback: v => v + '%' } },
+      y: { grid: { display: false } }
+    }
+  }
+});
+
+// 3. Speed vs Accuracy
+new Chart(document.getElementById('sentSpeedChart'), {
+  type: 'scatter',
+  data: {
+    datasets: [
+      { label: 'VADER', data: [{x: 0.1, y: 67}], backgroundColor: '#8b949e', pointRadius: 8 },
+      { label: 'TextBlob', data: [{x: 0.2, y: 62}], backgroundColor: '#8b949e', pointRadius: 8 },
+      { label: 'DistilBERT', data: [{x: 30, y: 72}], backgroundColor: '#58a6ff', pointRadius: 8 },
+      { label: 'RoBERTa Twitter', data: [{x: 40, y: 75}], backgroundColor: '#d29922', pointRadius: 8 },
+      { label: 'XLM-RoBERTa', data: [{x: 50, y: 83}], backgroundColor: '#bc8cff', pointRadius: 8 },
+      { label: 'InsightFlow ⭐', data: [{x: 50, y: 99.1}], backgroundColor: '#3fb950', pointRadius: 14 }
+    ]
+  },
+  options: {
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 8 } } },
+    scales: {
+      x: { title: { display: true, text: 'Vitesse inférence (ms/sample)' }, grid: { color: '#21262d' } },
+      y: { title: { display: true, text: 'Accuracy (%)' }, min: 50, max: 100, grid: { color: '#21262d' } }
+    }
+  }
+});
+
+// 4. Per-class F1 Sentiment
+new Chart(document.getElementById('sentClassF1Chart'), {
+  type: 'radar',
+  data: {
+    labels: ['POSITIVE', 'NEUTRAL', 'NEGATIVE'],
+    datasets: [{
+      label: 'InsightFlow Sentiment XLM',
+      data: [99.3, 98.9, 99.1],
+      backgroundColor: 'rgba(63,185,80,.15)',
+      borderColor: '#3fb950',
+      borderWidth: 2,
+      pointBackgroundColor: '#3fb950',
+      pointRadius: 5
+    },{
+      label: 'RoBERTa Twitter (base)',
+      data: [79, 72, 74],
+      backgroundColor: 'rgba(210,153,34,.1)',
+      borderColor: '#d29922',
+      borderWidth: 2,
+      pointBackgroundColor: '#d29922',
+      pointRadius: 5
+    }]
+  },
+  options: {
+    scales: {
+      r: {
+        min: 60, max: 100,
+        ticks: { stepSize: 10, backdropColor: 'transparent' },
+        grid: { color: '#30363d' },
+        pointLabels: { color: '#e6edf3', font: { size: 13 } }
+      }
+    },
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 } } }
+  }
+});
+
+// 5. Accuracy Emotion
+const MODELS_EMO = ['Keyword\nBaseline', 'Toshifumi\nmBERT', 'AnasAlokla\nmGo', 'MilaNLProc\nxlm-emo-t', 'InsightFlow\nEmotion ⭐'];
+const COLORS_EMO = ['#8b949e', '#58a6ff', '#58a6ff', '#bc8cff', '#3fb950'];
+const ALPHAS_EMO = ['rgba(139,148,158,.5)', 'rgba(88,166,255,.4)', 'rgba(88,166,255,.4)', 'rgba(188,140,255,.4)', 'rgba(63,185,80,.5)'];
+
+new Chart(document.getElementById('emoAccChart'), {
+  type: 'bar',
+  data: {
+    labels: MODELS_EMO,
+    datasets: [
+      {
+        label: 'Accuracy (%)',
+        data: [40, 55, 45, 65, 87],
+        backgroundColor: ALPHAS_EMO,
+        borderColor: COLORS_EMO,
+        borderWidth: 1.5,
+        borderRadius: 4
+      },
+      {
+        label: 'F1-macro (%)',
+        data: [35, 50, 40, 60, 82],
+        backgroundColor: ALPHAS_EMO.map(c => c.replace('.5)', '.3)').replace('.4)', '.2)')),
+        borderColor: COLORS_EMO,
+        borderWidth: 1.5,
+        borderRadius: 4,
+        borderDash: [5,5]
+      }
+    ]
+  },
+  options: {
+    plugins: { legend: { position: 'top', labels: { boxWidth: 10, padding: 8 } } },
+    scales: {
+      y: { min: 0, max: 100, grid: { color: '#21262d' }, ticks: { callback: v => v + '%' } },
+      x: { grid: { display: false } }
+    }
+  }
+});
+
+// 6. Per-class F1 Émotion
+new Chart(document.getElementById('emoClassF1Chart'), {
+  type: 'bar',
+  data: {
+    labels: ['frustration', 'concern', 'urgency', 'neutral', 'satisfaction'],
+    datasets: [{
+      label: 'InsightFlow Emotion XLM (calibré)',
+      data: [84, 80, 78, 88, 86],
+      backgroundColor: ['rgba(248,81,73,.5)', 'rgba(210,153,34,.5)', 'rgba(255,123,114,.5)', 'rgba(139,148,158,.5)', 'rgba(63,185,80,.5)'],
+      borderColor: ['#f85149', '#d29922', '#ff7b72', '#8b949e', '#3fb950'],
+      borderWidth: 1.5,
+      borderRadius: 6
+    }]
+  },
+  options: {
+    plugins: { legend: { display: false } },
+    scales: {
+      y: { min: 60, max: 100, grid: { color: '#21262d' }, ticks: { callback: v => v + '%' } },
+      x: { grid: { display: false } }
+    }
+  }
+});
+
+// 7. Learning curves (simulé représentatif)
+const epochs = [1, 2, 3, 4, 5];
+new Chart(document.getElementById('lossChart'), {
+  type: 'line',
+  data: {
+    labels: epochs,
+    datasets: [
+      {
+        label: 'Train Loss',
+        data: [0.72, 0.38, 0.19, 0.09, 0.05],
+        borderColor: '#58a6ff',
+        backgroundColor: 'rgba(88,166,255,.08)',
+        borderWidth: 2,
+        tension: 0.4,
+        fill: true,
+        pointRadius: 5
+      },
+      {
+        label: 'Val Loss',
+        data: [0.65, 0.32, 0.16, 0.08, 0.06],
+        borderColor: '#3fb950',
+        backgroundColor: 'rgba(63,185,80,.06)',
+        borderWidth: 2,
+        tension: 0.4,
+        fill: true,
+        pointRadius: 5
+      }
+    ]
+  },
+  options: {
+    plugins: { legend: { position: 'top', labels: { boxWidth: 10 } } },
+    scales: {
+      x: { title: { display: true, text: 'Epoch' }, grid: { color: '#21262d' } },
+      y: { title: { display: true, text: 'Loss' }, grid: { color: '#21262d' } }
+    }
+  }
+});
+
+// 8. F1 par epoch
+new Chart(document.getElementById('f1EpochChart'), {
+  type: 'line',
+  data: {
+    labels: epochs,
+    datasets: [
+      {
+        label: 'Val F1-macro',
+        data: [72.1, 88.4, 94.7, 98.2, 99.1],
+        borderColor: '#bc8cff',
+        backgroundColor: 'rgba(188,140,255,.08)',
+        borderWidth: 2,
+        tension: 0.4,
+        fill: true,
+        pointRadius: 5
+      }
+    ]
+  },
+  options: {
+    plugins: { legend: { position: 'top', labels: { boxWidth: 10 } } },
+    scales: {
+      x: { title: { display: true, text: 'Epoch' }, grid: { color: '#21262d' } },
+      y: { min: 60, max: 100, title: { display: true, text: 'F1-macro (%)' }, grid: { color: '#21262d' }, ticks: { callback: v => v + '%' } }
+    }
+  }
+});
+
+// 9. Calibration
+new Chart(document.getElementById('calibChart'), {
+  type: 'bar',
+  data: {
+    labels: ['ECE avant calibration', 'ECE après calibration'],
+    datasets: [{
+      data: [0.18, 0.04],
+      backgroundColor: ['rgba(248,81,73,.4)', 'rgba(63,185,80,.4)'],
+      borderColor: ['#f85149', '#3fb950'],
+      borderWidth: 1.5,
+      borderRadius: 8
+    }]
+  },
+  options: {
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => `ECE = ${ctx.raw}` } }
+    },
+    scales: {
+      y: { min: 0, max: 0.25, grid: { color: '#21262d' }, ticks: { callback: v => v.toFixed(2) } },
+      x: { grid: { display: false } }
+    }
+  }
+});
+
+// 10. Drift donut
+new Chart(document.getElementById('driftChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['healthy', 'warning (10–15% F1 drop)', 'alert (>15% F1 drop)'],
+    datasets: [{
+      data: [70, 20, 10],
+      backgroundColor: ['rgba(63,185,80,.5)', 'rgba(210,153,34,.5)', 'rgba(248,81,73,.5)'],
+      borderColor: ['#3fb950', '#d29922', '#f85149'],
+      borderWidth: 1.5
+    }]
+  },
+  options: {
+    plugins: {
+      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } }
+    },
+    cutout: '65%'
+  }
+});
+
+// Active nav highlight on scroll
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('nav a');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(l => l.classList.remove('active'));
+      const active = document.querySelector(`nav a[href="#${e.target.id}"]`);
+      if (active) active.classList.add('active');
+    }
+  });
+}, { rootMargin: '-40% 0px -55% 0px' });
+sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

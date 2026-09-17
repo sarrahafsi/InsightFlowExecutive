@@ -135,17 +135,20 @@ def _fetch_recent_corrections(task: str, window_days: int) -> pd.DataFrame:
         conn = psycopg2.connect(DB_URL)
         cur  = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(f"""
-            SELECT id,
-                   text_snapshot       AS text,
-                   {corrected_col}     AS true_label,
-                   {original_col}      AS predicted_label,
-                   corrected_at
-            FROM human_corrections
-            WHERE {corrected_col} IS NOT NULL
-              AND text_snapshot IS NOT NULL
-              AND LENGTH(text_snapshot) > 20
-              AND corrected_at >= %s
-            ORDER BY corrected_at DESC
+            SELECT hc.id,
+                   hc.text_snapshot       AS text,
+                   hc.{corrected_col}     AS true_label,
+                   hc.{original_col}      AS predicted_label,
+                   hc.corrected_at
+            FROM human_corrections hc
+            JOIN messages_raw  mr ON mr.id = hc.message_id
+            JOIN organisations o  ON o.id  = mr.org_id
+            WHERE hc.{corrected_col} IS NOT NULL
+              AND hc.text_snapshot IS NOT NULL
+              AND LENGTH(hc.text_snapshot) > 20
+              AND hc.corrected_at >= %s
+              AND o.contributes_to_shared_training = TRUE
+            ORDER BY hc.corrected_at DESC
         """, (since,))
         rows = cur.fetchall()
         cur.close()
@@ -177,13 +180,15 @@ def _fetch_recent_predictions(task: str, window_days: int) -> pd.DataFrame:
         conn = psycopg2.connect(DB_URL)
         cur  = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(f"""
-            SELECT {label_col} AS label,
-                   {score_col} AS confidence,
-                   timestamp
-            FROM messages_raw
-            WHERE {label_col} IS NOT NULL
-              AND timestamp >= %s
-            ORDER BY timestamp DESC
+            SELECT mr.{label_col} AS label,
+                   mr.{score_col} AS confidence,
+                   mr.timestamp
+            FROM messages_raw mr
+            JOIN organisations o ON o.id = mr.org_id
+            WHERE mr.{label_col} IS NOT NULL
+              AND mr.timestamp >= %s
+              AND o.contributes_to_shared_training = TRUE
+            ORDER BY mr.timestamp DESC
             LIMIT 2000
         """, (since,))
         rows = cur.fetchall()

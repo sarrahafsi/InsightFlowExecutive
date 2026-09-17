@@ -10,13 +10,13 @@ type Mode = "login" | "register";
 function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const [mode, setMode]         = useState<Mode>("login");
-  const [email, setEmail]       = useState("");
-  const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [orgName, setOrgName]   = useState("");
-  const [error, setError]       = useState("");
-  const [loading, setLoading]   = useState(false);
+  const [mode, setMode]                 = useState<Mode>("login");
+  const [email, setEmail]               = useState("");
+  const [password, setPassword]         = useState("");
+  const [confirmPassword, setConfirmPw] = useState("");
+  const [fullName, setFullName]         = useState("");
+  const [error, setError]               = useState("");
+  const [loading, setLoading]           = useState(false);
 
   useEffect(() => {
     if (isLoggedIn()) router.replace("/dashboard");
@@ -25,12 +25,18 @@ function LoginInner() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+
+    if (mode === "register" && password !== confirmPassword) {
+      setError("Les mots de passe ne correspondent pas.");
+      return;
+    }
+
     setLoading(true);
 
     const endpoint = mode === "login" ? "/auth/login" : "/auth/register";
     const body = mode === "login"
       ? { email, password }
-      : { email, password, full_name: fullName, org_name: orgName };
+      : { email, password, full_name: fullName };
 
     try {
       const res = await fetch(`${BASE_URL}${endpoint}`, {
@@ -46,10 +52,17 @@ function LoginInner() {
       setToken(data.access_token);
       setUser(data.user as AuthUser);
       const user: AuthUser = data.user;
-      // New CEO registration always goes to onboarding wizard
-      const defaultNext = mode === "register"
-        ? "/onboarding"
-        : user.role === "superadmin" ? "/dashboard/admin" : "/dashboard";
+
+      let defaultNext: string;
+      if (mode === "register") {
+        defaultNext = "/verify-email";
+      } else if (!user.email_verified) {
+        defaultNext = "/verify-email";
+      } else if (!user.org_id) {
+        defaultNext = "/create-organisation";
+      } else {
+        defaultNext = user.role === "superadmin" ? "/dashboard/admin" : "/dashboard";
+      }
       const next = params.get("next") ?? defaultNext;
       router.replace(next);
     } catch {
@@ -81,7 +94,7 @@ function LoginInner() {
             Executive
           </div>
           <div style={{ fontSize: 13, color: "#748cab", marginTop: 6 }}>
-            {mode === "login" ? "Connexion à votre espace" : "Créer votre organisation"}
+            {mode === "login" ? "Connexion à votre espace" : "Créer votre compte"}
           </div>
         </div>
 
@@ -108,30 +121,20 @@ function LoginInner() {
             borderRadius: 10, padding: "10px 14px", marginBottom: "1rem",
             fontSize: 12, color: "#1e40af",
           }}>
-            Créez votre organisation et votre compte <strong>CEO</strong>. Vous pourrez ensuite inviter vos Project Managers.
+            En créant votre compte, vous allez créer un espace privé pour votre organisation. Un email de vérification vous sera envoyé.
           </div>
         )}
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {mode === "register" && (
-            <>
-              <div>
-                <label style={labelStyle}>Nom de l'organisation</label>
-                <input
-                  type="text" value={orgName} onChange={e => setOrgName(e.target.value)}
-                  placeholder="Acme Corp" required minLength={2}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Votre nom complet</label>
-                <input
-                  type="text" value={fullName} onChange={e => setFullName(e.target.value)}
-                  placeholder="Jean Dupont" required
-                  style={inputStyle}
-                />
-              </div>
-            </>
+            <div>
+              <label style={labelStyle}>Votre nom complet</label>
+              <input
+                type="text" value={fullName} onChange={e => setFullName(e.target.value)}
+                placeholder="Jean Dupont" required
+                style={inputStyle}
+              />
+            </div>
           )}
 
           <div>
@@ -139,6 +142,7 @@ function LoginInner() {
             <input
               type="email" value={email} onChange={e => setEmail(e.target.value)}
               placeholder="ceo@company.com" required
+              autoComplete={mode === "register" ? "off" : "email"}
               style={inputStyle}
             />
           </div>
@@ -148,9 +152,22 @@ function LoginInner() {
             <input
               type="password" value={password} onChange={e => setPassword(e.target.value)}
               placeholder="••••••••" required minLength={6}
+              autoComplete={mode === "register" ? "new-password" : "current-password"}
               style={inputStyle}
             />
           </div>
+
+          {mode === "register" && (
+            <div>
+              <label style={labelStyle}>Confirmer le mot de passe</label>
+              <input
+                type="password" value={confirmPassword} onChange={e => setConfirmPw(e.target.value)}
+                placeholder="••••••••" required minLength={6}
+                autoComplete="new-password"
+                style={inputStyle}
+              />
+            </div>
+          )}
 
           {error && (
             <div style={{
@@ -171,7 +188,7 @@ function LoginInner() {
           }}>
             {loading
               ? (mode === "login" ? "Connexion..." : "Création...")
-              : (mode === "login" ? "Se connecter" : "Créer mon organisation")}
+              : (mode === "login" ? "Se connecter" : "Créer mon compte")}
           </button>
         </form>
 

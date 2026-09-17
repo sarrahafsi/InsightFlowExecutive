@@ -129,7 +129,7 @@ class ItemStore:
 
     def __init__(self):
         self._items: dict[str, DataItem] = {}
-        self._last_sync: dict[SourceType, datetime] = {}
+        self._last_sync: dict[tuple[SourceType, str | None], datetime] = {}
 
     # ------------------------------------------------------------------
     # Write
@@ -142,8 +142,8 @@ class ItemStore:
             self._items[item.id] = item
         return len(self._items) - before
 
-    def set_last_sync(self, source: SourceType, at: datetime) -> None:
-        self._last_sync[source] = at
+    def set_last_sync(self, source: SourceType, at: datetime, org_id: str | None = None) -> None:
+        self._last_sync[(source, org_id)] = at
 
     # ------------------------------------------------------------------
     # Read
@@ -175,8 +175,8 @@ class ItemStore:
     def count(self) -> int:
         return len(self._items)
 
-    def last_sync(self, source: SourceType) -> datetime | None:
-        return self._last_sync.get(source)
+    def last_sync(self, source: SourceType, org_id: str | None = None) -> datetime | None:
+        return self._last_sync.get((source, org_id))
 
 
 # Singleton — shared across the whole app

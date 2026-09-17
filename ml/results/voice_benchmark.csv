@@ -1,0 +1,5 @@
+model,wer,cer,rtf,speed_ms,size_mb,n_samples
+Whisper tiny,0.401,0.1632,0.1054,1095.2,39,100
+Whisper base,0.2506,0.0956,0.1339,1391.4,74,100
+Whisper small,0.1368,0.0462,0.3895,4048.7,244,100
+wav2vec2 FR,0.1663,0.0638,0.2794,2904.3,1200,100

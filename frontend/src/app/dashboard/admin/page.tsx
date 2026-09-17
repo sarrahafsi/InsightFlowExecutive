@@ -10,6 +10,22 @@ interface Stats   { total_orgs:number; total_users:number; total_messages:number
 interface Connector { key:string; name:string; icon:string; color:string; category:string; auth_type:string; description:string; enabled:boolean; coming_soon:boolean; }
 interface UserRow { id:number; email:string; full_name:string; role:string; org_id:string|null; org_name:string; is_active:boolean; created_at:string; }
 interface MLStatus { corrections:any; last_training:any; training_in_progress:boolean; training_task?:string; models:any; script_available:boolean; }
+interface DriftCheck { check:string; status:string; message?:string; reason?:string; details?:any; }
+interface DriftReport { task?:string; overall_status:string; generated_at?:string; recommendation?:string|null; checks?:DriftCheck[]; message?:string; }
+interface SchedulerStatus {
+  running:boolean; enabled:boolean; min_samples:number;
+  retrain_schedule:string; anomaly_schedule:string;
+  next_retrain_run?:string|null; next_anomaly_run?:string|null; next_run?:string|null;
+  last_run:{ triggered_at:string|null; trigger_reason:string|null; status:string; tasks_launched:string[] };
+}
+interface AgentStatus {
+  status:string; last_decision:any; executed?:boolean; timestamp?:string|null;
+}
+interface DemoRequestRow {
+  id:number; first_name:string; last_name:string; email:string; company:string;
+  job_title:string|null; company_size:string|null; sources:string[]; message:string|null;
+  status:string; created_at:string;
+}
 
 /* ── Helpers ────────────────────────────────────────────────────────────────── */
 const PLAN_META: Record<string,{label:string;color:string;bg:string}> = {
@@ -17,11 +33,38 @@ const PLAN_META: Record<string,{label:string;color:string;bg:string}> = {
   pro:        {label:"Pro",        color:"#2563eb", bg:"rgba(37,99,235,0.1)"},
   enterprise: {label:"Enterprise", color:"#9333ea", bg:"rgba(147,51,234,0.1)"},
 };
-const ROLE_COLOR: Record<string,string> = { superadmin:"#ef4444", ceo:"#f59e0b", pm:"#3b82f6" };
+const ROLE_COLOR: Record<string,string> = { superadmin:"#ef4444", ceo:"#f59e0b" };
 
 function timeAgo(iso:string) {
   const d = Math.floor((Date.now()-new Date(iso).getTime())/86400000);
   if(d===0) return "Aujourd'hui"; if(d===1) return "Hier"; if(d<30) return `${d}j`; return `${Math.floor(d/30)} mois`;
+}
+
+function fmtDateTime(iso?:string|null) {
+  if (!iso) return "—";
+  try { return new Date(iso).toLocaleString("fr-FR", {dateStyle:"short", timeStyle:"short"}); }
+  catch { return iso; }
+}
+
+const STATUS_META: Record<string,{label:string;color:string;bg:string}> = {
+  healthy:           {label:"Sain",                  color:"#16a34a", bg:"#f0fdf4"},
+  ok:                {label:"OK",                    color:"#16a34a", bg:"#f0fdf4"},
+  success:           {label:"Succès",                color:"#16a34a", bg:"#f0fdf4"},
+  completed:         {label:"Terminé",                color:"#16a34a", bg:"#f0fdf4"},
+  warning:           {label:"Avertissement",          color:"#d97706", bg:"#fffbeb"},
+  alert:             {label:"Alerte",                 color:"#ef4444", bg:"#fef2f2"},
+  error:             {label:"Erreur",                 color:"#ef4444", bg:"#fef2f2"},
+  failed:            {label:"Échoué",                 color:"#ef4444", bg:"#fef2f2"},
+  skipped:           {label:"Ignoré",                 color:"#748cab", bg:"rgba(116,140,171,0.12)"},
+  not_executed:      {label:"Non exécuté",            color:"#748cab", bg:"rgba(116,140,171,0.12)"},
+  no_action_needed:  {label:"Aucune action requise",  color:"#748cab", bg:"rgba(116,140,171,0.12)"},
+  insufficient_data: {label:"Données insuffisantes",  color:"#748cab", bg:"rgba(116,140,171,0.12)"},
+  no_report:         {label:"Aucun rapport",          color:"#94a3b8", bg:"rgba(148,163,184,0.12)"},
+  no_runs_yet:       {label:"Aucun run",              color:"#94a3b8", bg:"rgba(148,163,184,0.12)"},
+  never_run:         {label:"Jamais exécuté",         color:"#94a3b8", bg:"rgba(148,163,184,0.12)"},
+};
+function statusMeta(status:string) {
+  return STATUS_META[status] ?? {label:status, color:"#748cab", bg:"rgba(116,140,171,0.12)"};
 }
 
 const card: React.CSSProperties = {
@@ -35,11 +78,21 @@ const th: React.CSSProperties = {
 };
 const td: React.CSSProperties = { padding:"13px 16px", borderBottom:"1px solid rgba(62,92,118,0.05)" };
 
+const DEMO_STATUS_META: Record<string,{label:string;color:string;bg:string}> = {
+  NEW:             {label:"Nouveau",   color:"#2563eb", bg:"rgba(37,99,235,0.1)"},
+  CONTACTED:       {label:"Contacté",  color:"#d97706", bg:"rgba(217,119,6,0.1)"},
+  DEMO_SCHEDULED:  {label:"Démo prévue", color:"#9333ea", bg:"rgba(147,51,234,0.1)"},
+  CLOSED:          {label:"Clôturé",   color:"#16a34a", bg:"rgba(22,163,74,0.1)"},
+};
+const DEMO_STATUSES = ["NEW", "CONTACTED", "DEMO_SCHEDULED", "CLOSED"] as const;
+
 const TABS = [
   {id:"orgs",       label:"🏢 Organisations"},
   {id:"users",      label:"👤 Utilisateurs"},
   {id:"connectors", label:"🔌 Connecteurs"},
   {id:"ai",         label:"🤖 IA & Modèles"},
+  {id:"monitoring", label:"📡 Monitoring"},
+  {id:"demos",      label:"📞 Demandes de démo"},
 ] as const;
 type TabId = typeof TABS[number]["id"];
 
@@ -53,11 +106,18 @@ function AdminInner() {
   const [users, setUsers]     = useState<UserRow[]>([]);
   const [connectors, setConn] = useState<Connector[]>([]);
   const [ml, setMl]           = useState<MLStatus|null>(null);
+  const [demos, setDemos]     = useState<DemoRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string|null>(null);
   const [planEdit, setPlanEdit] = useState<{id:string;plan:string}|null>(null);
   const [retraining, setRetraining] = useState(false);
   const [retMsg, setRetMsg] = useState<string|null>(null);
+  const [drift, setDrift]       = useState<{sentiment:DriftReport;emotion:DriftReport}|null>(null);
+  const [scheduler, setSched]   = useState<SchedulerStatus|null>(null);
+  const [agent, setAgent]       = useState<AgentStatus|null>(null);
+  const [refreshingDrift, setRefreshingDrift] = useState(false);
+  const [triggeringRetrain, setTriggeringRetrain] = useState(false);
+  const [monMsg, setMonMsg] = useState<string|null>(null);
 
   useEffect(() => {
     const user = getUser();
@@ -74,6 +134,8 @@ function AdminInner() {
     if (tab === "users"      && users.length === 0)      loadUsers();
     if (tab === "connectors" && connectors.length === 0) loadConnectors();
     if (tab === "ai"         && !ml)                     loadML();
+    if (tab === "monitoring" && !drift)                  loadMonitoring();
+    if (tab === "demos"      && demos.length === 0)      loadDemos();
   }, [tab]);
 
   async function loadBase() {
@@ -87,6 +149,44 @@ function AdminInner() {
   async function loadUsers()      { try { setUsers((await API.get("/api/admin/users")).data); } catch {} }
   async function loadConnectors() { try { setConn((await API.get("/api/admin/connectors")).data); } catch {} }
   async function loadML()         { try { setMl((await API.get("/api/admin/ai/status")).data); } catch {} }
+  async function loadDemos()      { try { setDemos((await API.get("/api/admin/demo-requests")).data); } catch {} }
+  async function loadMonitoring() {
+    try {
+      const [d,s,a] = await Promise.all([
+        API.get("/api/admin/ai/drift"),
+        API.get("/api/admin/ai/scheduler"),
+        API.get("/api/admin/ai/agent"),
+      ]);
+      setDrift(d.data); setSched(s.data); setAgent(a.data);
+    } catch {}
+  }
+
+  async function refreshDrift() {
+    setRefreshingDrift(true); setMonMsg(null);
+    try {
+      await API.post("/api/admin/ai/drift/refresh", {task:"all", window_days:30});
+      setMonMsg("✅ Drift recalculé.");
+      await loadMonitoring();
+    } catch(e:any) { setMonMsg(`❌ ${e.response?.data?.detail ?? e.message}`); }
+    finally { setRefreshingDrift(false); }
+  }
+
+  async function triggerAutoRetrain() {
+    setTriggeringRetrain(true); setMonMsg(null);
+    try {
+      const r = await API.post("/api/admin/ai/auto-retrain/trigger", {});
+      setMonMsg(`✅ ${r.data.message ?? "Check auto-retrain déclenché."}`);
+      setTimeout(loadMonitoring, 3000);
+    } catch(e:any) { setMonMsg(`❌ ${e.response?.data?.detail ?? e.message}`); }
+    finally { setTriggeringRetrain(false); }
+  }
+
+  async function changeDemoStatus(id:number, status:string) {
+    try {
+      await API.patch(`/api/admin/demo-requests/${id}`, {status});
+      setDemos(p => p.map(d => d.id===id ? {...d, status} : d));
+    } catch {}
+  }
 
   async function deleteOrg(id:string, name:string) {
     if (!confirm(`Supprimer "${name}" et TOUTES ses données ? Irréversible.`)) return;
@@ -145,7 +245,7 @@ function AdminInner() {
 
       {/* Stats */}
       {stats && (
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"1rem",marginBottom:"2rem"}}>
+        <div className="rf-grid-4" style={{gap:"1rem",marginBottom:"2rem"}}>
           {[
             {label:"Organisations", value:stats.total_orgs,     icon:"🏢", color:"#9333ea"},
             {label:"Utilisateurs",  value:stats.total_users,    icon:"👤", color:"#2563eb"},
@@ -323,7 +423,7 @@ function AdminInner() {
           ) : (
             <>
               {/* Training status */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1rem"}}>
+              <div className="rf-grid-2" style={{gap:"1rem"}}>
                 {/* Corrections en attente */}
                 <div style={{...card,padding:"1.5rem"}}>
                   <div style={{fontSize:12,color:"#748cab",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:"1rem"}}>Corrections en attente</div>
@@ -369,7 +469,7 @@ function AdminInner() {
               {/* Models */}
               <div style={{...card,padding:"1.5rem"}}>
                 <div style={{fontSize:12,color:"#748cab",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:"1rem"}}>Modèles NLP</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1rem"}}>
+                <div className="rf-grid-2" style={{gap:"1rem"}}>
                   {Object.entries(ml.models??{}).map(([name,info]:any)=>(
                     <div key={name} style={{padding:"14px 16px",borderRadius:12,background:"rgba(62,92,118,0.04)",border:"1px solid rgba(62,92,118,0.08)"}}>
                       <div style={{fontSize:13,fontWeight:700,color:"#0d1321",marginBottom:6,textTransform:"capitalize"}}>{name}</div>
@@ -401,6 +501,163 @@ function AdminInner() {
                 {retMsg && <div style={{marginTop:12,fontSize:13,padding:"10px 14px",borderRadius:10,background:retMsg.startsWith("✅")?"#f0fdf4":"#fef2f2",color:retMsg.startsWith("✅")?"#16a34a":"#ef4444"}}>{retMsg}</div>}
               </div>
             </>
+          )}
+        </div>
+      )}
+
+      {/* ── MONITORING (drift, scheduler, agent autonome) ────────────────────── */}
+      {tab==="monitoring" && (
+        <div style={{display:"flex",flexDirection:"column",gap:"1.5rem",animation:"fadeUp 0.3s ease"}}>
+          <div style={{padding:"12px 16px",background:"rgba(37,99,235,0.06)",borderRadius:12,border:"1px solid rgba(37,99,235,0.15)",fontSize:12,color:"#1e40af",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <span>📡 <strong>Monitoring & Drift Detection</strong> — surveillance de la dérive des modèles en production et de l'auto-retraining nocturne.</span>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={refreshDrift} disabled={refreshingDrift} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:refreshingDrift?"not-allowed":"pointer",background:"#2563eb",color:"#fff",fontSize:12,fontWeight:600}}>
+                {refreshingDrift?"…":"↻ Recalculer le drift"}
+              </button>
+              <button onClick={triggerAutoRetrain} disabled={triggeringRetrain} style={{padding:"7px 14px",borderRadius:8,border:"1px solid #2563eb",cursor:triggeringRetrain?"not-allowed":"pointer",background:"transparent",color:"#2563eb",fontSize:12,fontWeight:600}}>
+                {triggeringRetrain?"…":"⚡ Forcer le check auto-retrain"}
+              </button>
+            </div>
+          </div>
+
+          {monMsg && <div style={{fontSize:13,padding:"10px 14px",borderRadius:10,background:monMsg.startsWith("✅")?"#f0fdf4":"#fef2f2",color:monMsg.startsWith("✅")?"#16a34a":"#ef4444"}}>{monMsg}</div>}
+
+          {!drift || !scheduler || !agent ? (
+            <div style={{textAlign:"center",padding:"3rem",color:"#748cab"}}>
+              <div style={{width:28,height:28,border:"2px solid rgba(147,51,234,0.2)",borderTop:"2px solid #9333ea",borderRadius:"50%",animation:"spin 0.8s linear infinite",margin:"0 auto 8px"}}/>Chargement du monitoring…
+            </div>
+          ) : (
+            <>
+              {/* Drift reports */}
+              <div className="rf-grid-2" style={{gap:"1rem"}}>
+                {(["sentiment","emotion"] as const).map(task=>{
+                  const report = drift[task];
+                  const sm = statusMeta(report?.overall_status ?? "no_report");
+                  return (
+                    <div key={task} style={{...card,padding:"1.5rem"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                        <div style={{fontSize:12,color:"#748cab",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Drift — {task}</div>
+                        <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:sm.bg,color:sm.color}}>{sm.label}</span>
+                      </div>
+                      {report?.generated_at && <div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Dernier check : {fmtDateTime(report.generated_at)}</div>}
+                      {report?.checks?.length ? report.checks.map(c=>{
+                        const csm = statusMeta(c.status);
+                        return (
+                          <div key={c.check} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"7px 0",borderTop:"1px solid rgba(62,92,118,0.06)"}}>
+                            <span style={{width:8,height:8,borderRadius:"50%",background:csm.color,marginTop:5,flexShrink:0}}/>
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:12,fontWeight:600,color:"#0d1321",textTransform:"capitalize"}}>{c.check.replace(/_/g," ")}</div>
+                              <div style={{fontSize:11,color:"#748cab"}}>{c.message ?? c.reason ?? "—"}</div>
+                            </div>
+                          </div>
+                        );
+                      }) : <div style={{fontSize:12,color:"#94a3b8",fontStyle:"italic"}}>{report?.message ?? "Aucune donnée disponible — lancez un recalcul."}</div>}
+                      {report?.recommendation && (
+                        <div style={{marginTop:10,fontSize:11,color:"#6d28d9",background:"rgba(147,51,234,0.06)",padding:"8px 10px",borderRadius:8}}>{report.recommendation}</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Scheduler */}
+              <div style={{...card,padding:"1.5rem"}}>
+                <div style={{fontSize:12,color:"#748cab",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:12}}>Scheduler auto-retraining</div>
+                <div className="rf-grid-3-eq" style={{gap:"1rem",marginBottom:12}}>
+                  <div>
+                    <div style={{fontSize:11,color:"#748cab"}}>Statut</div>
+                    <div style={{fontSize:13,fontWeight:700,color:scheduler.enabled?"#16a34a":"#ef4444"}}>{scheduler.enabled?"Activé":"Désactivé"}{scheduler.running?" · en cours":""}</div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,color:"#748cab"}}>Prochain retrain</div>
+                    <div style={{fontSize:13,fontWeight:600,color:"#0d1321"}}>{fmtDateTime(scheduler.next_retrain_run ?? scheduler.next_run)}</div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,color:"#748cab"}}>Prochaine détection d'anomalies</div>
+                    <div style={{fontSize:13,fontWeight:600,color:"#0d1321"}}>{fmtDateTime(scheduler.next_anomaly_run)}</div>
+                  </div>
+                </div>
+                <div style={{fontSize:11,color:"#94a3b8",marginBottom:8}}>Planning : {scheduler.retrain_schedule} (retrain) · {scheduler.anomaly_schedule} (anomalies) · seuil {scheduler.min_samples} corrections</div>
+                <div style={{padding:"10px 12px",borderRadius:10,background:"rgba(62,92,118,0.04)",fontSize:12}}>
+                  <strong>Dernier run :</strong> {fmtDateTime(scheduler.last_run?.triggered_at)} — {statusMeta(scheduler.last_run?.status ?? "never_run").label}
+                  {scheduler.last_run?.trigger_reason && <div style={{color:"#748cab",marginTop:2}}>{scheduler.last_run.trigger_reason}</div>}
+                  {scheduler.last_run?.tasks_launched?.length ? <div style={{color:"#9333ea",marginTop:2}}>Tâches lancées : {scheduler.last_run.tasks_launched.join(", ")}</div> : null}
+                </div>
+              </div>
+
+              {/* Agent autonome */}
+              <div style={{...card,padding:"1.5rem"}}>
+                <div style={{fontSize:12,color:"#748cab",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:12}}>Agent autonome — dernière décision</div>
+                {agent.status==="no_runs_yet" ? (
+                  <div style={{fontSize:12,color:"#94a3b8",fontStyle:"italic"}}>Aucun run de l'agent pour le moment.</div>
+                ) : (
+                  <>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                      {(() => { const asm=statusMeta(agent.status); return <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:asm.bg,color:asm.color}}>{asm.label}</span>; })()}
+                      <span style={{fontSize:12,color:"#748cab"}}>{fmtDateTime(agent.timestamp)}</span>
+                    </div>
+                    {agent.last_decision && (
+                      <div style={{fontSize:12,color:"#0d1321"}}>
+                        <div>Stratégie : <strong>{agent.last_decision.strategy ?? "—"}</strong></div>
+                        {agent.last_decision.root_cause && <div style={{color:"#748cab",marginTop:4}}>{agent.last_decision.root_cause}</div>}
+                      </div>
+                    )}
+                    <div style={{fontSize:11,color:"#94a3b8",marginTop:8}}>Exécuté : {agent.executed?"Oui":"Non"}</div>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── DEMANDES DE DÉMO ──────────────────────────────────────────────────── */}
+      {tab==="demos" && (
+        <div style={{...card,animation:"fadeUp 0.3s ease"}}>
+          {demos.length===0 ? (
+            <div style={{textAlign:"center",padding:"3rem",color:"#748cab"}}>
+              <div style={{fontSize:32,marginBottom:8}}>📞</div>
+              <div style={{fontWeight:600}}>Aucune demande de démo</div>
+              <div style={{fontSize:12,marginTop:4}}>Les demandes soumises via /request-demo apparaîtront ici</div>
+            </div>
+          ) : (
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr>{["Contact","Entreprise","Sources","Statut","Reçue","Message"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {demos.map(d=>{
+                  const sm = DEMO_STATUS_META[d.status] ?? DEMO_STATUS_META.NEW;
+                  return (
+                    <tr key={d.id} className="row">
+                      <td style={td}>
+                        <div style={{fontSize:13,fontWeight:700,color:"#0d1321"}}>{d.first_name} {d.last_name}</div>
+                        <div style={{fontSize:11,color:"#748cab"}}>{d.email}</div>
+                        {d.job_title && <div style={{fontSize:11,color:"#94a3b8"}}>{d.job_title}</div>}
+                      </td>
+                      <td style={td}>
+                        <div style={{fontSize:13,color:"#0d1321"}}>{d.company}</div>
+                        {d.company_size && <div style={{fontSize:11,color:"#748cab"}}>{d.company_size} employés</div>}
+                      </td>
+                      <td style={{...td,fontSize:12,color:"#748cab"}}>
+                        {d.sources.length>0 ? d.sources.join(", ") : "—"}
+                      </td>
+                      <td style={td}>
+                        <select
+                          value={d.status}
+                          onChange={e=>changeDemoStatus(d.id, e.target.value)}
+                          style={{fontSize:11,fontWeight:700,padding:"3px 8px",borderRadius:20,border:"none",cursor:"pointer",background:sm.bg,color:sm.color}}
+                        >
+                          {DEMO_STATUSES.map(s=><option key={s} value={s}>{DEMO_STATUS_META[s].label}</option>)}
+                        </select>
+                      </td>
+                      <td style={{...td,fontSize:12,color:"#748cab"}}>{d.created_at?timeAgo(d.created_at):"—"}</td>
+                      <td style={{...td,fontSize:12,color:"#748cab",maxWidth:220}}>
+                        {d.message ? <span title={d.message}>{d.message.slice(0,60)}{d.message.length>60?"…":""}</span> : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           )}
         </div>
       )}

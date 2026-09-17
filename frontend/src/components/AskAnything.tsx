@@ -156,10 +156,13 @@ export default function AskAnything() {
     setLoading(true);
     try {
       let r;
+      // 200s — au-dessus du timeout Ollama côté backend (180s, cf. intelligence/llm/client.py)
+      // pour ne pas abandonner la requête avant que le backend ait fini de répondre.
+      const ASK_TIMEOUT_MS = 200_000;
       if (projectId) {
-        r = await API.post(`/api/projects/${projectId}/ask`, { question, top_k: 8 });
+        r = await API.post(`/api/projects/${projectId}/ask`, { question, top_k: 8 }, ASK_TIMEOUT_MS);
       } else {
-        r = await API.post("/api/ask", { query: question, top_k: 5, provider });
+        r = await API.post("/api/ask", { query: question, top_k: 5, provider }, ASK_TIMEOUT_MS);
       }
       setMessages(prev => [...prev, { role: "assistant", content: r.data.answer, sources: r.data.sources }]);
       if (r.data.indexed_count !== undefined) setIndexed(r.data.indexed_count);

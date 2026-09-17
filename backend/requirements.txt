@@ -28,7 +28,7 @@ openai>=1.30.0              # Azure GPT-4o + Ollama compatible client
 mcp>=1.0.0                  # SDK MCP officiel Anthropic
 
 # ── Vector DB + RAG ────────────────────────────────────────
-chromadb>=0.5.0
+chromadb>=1.0.0  # 0.5.0 casse avec numpy>=2.0 (np.float_ supprimé) — voir incident 03/09/2026
 sentence-transformers>=3.0.0
 
 # ── MLOps — Auto-Retraining Scheduler ─────────────────────
@@ -42,3 +42,10 @@ redis>=5.0.0
 bcrypt>=4.0.0
 python-jose[cryptography]>=3.3.0
 python-multipart>=0.0.9
+cryptography>=42.0.0   # Fernet — encrypts connected-app tokens at rest (core/crypto.py)
+
+# ── Email verification — vérification SMTP de la boîte à l'inscription ────────
+dnspython>=2.6.0
+
+# ── Speech-to-text — messages vocaux Slack/Teams (local, pas de dépendance ffmpeg) ─
+faster-whisper>=1.0.0

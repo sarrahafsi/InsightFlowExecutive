@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import API from "@/lib/api";
+import API, { isUpgradeRequired } from "@/lib/api";
 
 const SEVERITY_COLOR: Record<string, string> = {
   high:   "#ef4444",
@@ -55,6 +55,7 @@ export default function AnomalyCard() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [msg, setMsg]         = useState<string | null>(null);
+  const [locked, setLocked]   = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -66,11 +67,21 @@ export default function AnomalyCard() {
         setEvents(evRes.data.events ?? []);
         setStatus(stRes.data.sources ?? {});
       })
-      .catch(() => {})
+      .catch(e => { if (isUpgradeRequired(e)) setLocked(true); })
       .finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, []);
+
+  if (locked) {
+    return (
+      <div style={{ background: "#fff", borderRadius: 20, padding: "1.5rem 1.75rem", boxShadow: "0 2px 20px rgba(13,19,33,0.07)", border: "1px solid rgba(62,92,118,0.1)", marginBottom: "1.5rem", textAlign: "center" }}>
+        <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
+        <div style={{ fontWeight: 700, fontSize: 14, color: "#0d1321" }}>Détection d'Anomalies — Fonctionnalité Pro</div>
+        <div style={{ fontSize: 12, color: "#748cab", marginTop: 4 }}>Passez à un plan supérieur pour détecter les comportements inhabituels dans vos données.</div>
+      </div>
+    );
+  }
 
   const runNow = async () => {
     setRunning(true);

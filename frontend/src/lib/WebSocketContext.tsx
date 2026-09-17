@@ -21,6 +21,8 @@ export interface WSNotification {
 
 interface WSContextValue {
   connected: boolean;
+  /** true si le WS a été refusé (non authentifié ou plan sans temps réel) — ne PAS relancer de reconnexion */
+  locked: boolean;
   lastEvent: WSEvent | null;
   notifications: WSNotification[];
   clearNotification: (id: string) => void;
@@ -32,6 +34,7 @@ interface WSContextValue {
 
 const WSContext = createContext<WSContextValue>({
   connected: false,
+  locked: false,
   lastEvent: null,
   notifications: [],
   clearNotification: () => {},
@@ -87,10 +90,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }
   }, [clearNotification]);
 
-  const { connected } = useWebSocket(handleEvent);
+  const { connected, locked } = useWebSocket(handleEvent);
 
   return (
-    <WSContext.Provider value={{ connected, lastEvent, notifications, clearNotification, refreshSignal, syncSignal }}>
+    <WSContext.Provider value={{ connected, locked, lastEvent, notifications, clearNotification, refreshSignal, syncSignal }}>
       {children}
     </WSContext.Provider>
   );

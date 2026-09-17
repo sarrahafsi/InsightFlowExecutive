@@ -5,9 +5,10 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from application.routes import sync, items, auth, sources, analytics, actions, brief, search, ml, ask, emails, projects, onedrive, decisions, orchestration, mcp, anomaly, health, teams_auth, outlook_auth, calendar as calendar_route, recommendations
+from application.routes import sync, items, auth, sources, analytics, actions, brief, search, ml, ask, emails, projects, onedrive, decisions, orchestration, mcp, anomaly, health, teams_auth, outlook_auth, slack_auth, calendar as calendar_route, recommendations
 from application.routes import websocket as ws_route, webhooks as webhooks_route, users as users_route
 from application.routes import admin as admin_route
+from application.routes import demo_requests as demo_requests_route
 from application.deps import connector_manager, item_store
 from core.database import init_db, SessionLocal
 from core.config import settings
@@ -61,9 +62,22 @@ async def _realtime_sync_loop():
     """
     Auto-sync every AUTO_SYNC_INTERVAL seconds and broadcast results via WebSocket.
     Runs as a background asyncio task for the lifetime of the server.
+
+    Syncs per-organisation: builds one fresh, org-scoped ConnectorManager per org
+    that has real configured sources (from source_configs), restricted to those
+    sources with use_mock=False. NEVER uses the global `connector_manager` — that
+    singleton has no org_id and Teams/Outlook default to mock data when
+    unconfigured, so using it here used to attribute mock messages (and whichever
+    org's Gmail happened to be found first) to the wrong organisation.
+
+    Slack is excluded — it has its own dedicated loop (see
+    application/routes/slack_auth.py:periodic_slack_sync_loop), so it isn't
+    double-synced here.
     """
     from core.ws_manager import ws_manager
+    from core.models import SourceConfig as _SC
     from integrations.connectors import ConnectorManager as CM
+
     interval = settings.auto_sync_interval
     await asyncio.sleep(45)  # let server fully start first
     print(f"[realtime] Auto-sync loop started — interval={interval}s")
@@ -74,50 +88,76 @@ async def _realtime_sync_loop():
                 "timestamp": datetime.utcnow().isoformat(),
             })
             since = datetime.utcnow() - timedelta(minutes=15)
-            results = await connector_manager.sync_all(since=since)
-            new_items = CM.collect_items(results)
+
+            db = SessionLocal()
+            try:
+                rows = db.query(_SC.org_id, _SC.source).filter(
+                    _SC.org_id.isnot(None), _SC.source != "slack",
+                ).distinct().all()
+            finally:
+                db.close()
+
+            by_org: dict[str, set[str]] = {}
+            for org_id, source in rows:
+                by_org.setdefault(org_id, set()).add(source)
 
             new_count = 0
-            if new_items:
+            sources_summary: dict[str, dict] = {}
+
+            for org_id, sources in by_org.items():
+                targets = [SourceType(s) for s in sources if s in SourceType._value2member_map_]
+                if not targets:
+                    continue
+
+                org_manager = CM(configs={
+                    s: {"org_id": org_id, "use_mock": False} for s in targets
+                })
+                results = await org_manager.sync_all(since=since, sources=targets)
+                new_items = CM.collect_items(results)
+
+                for r in results:
+                    info = sources_summary.setdefault(r.source.value, {"items": 0, "success": True})
+                    info["items"] += len(r.items)
+                    info["success"] = info["success"] and r.success
+
+                if not new_items:
+                    continue
+
                 item_store.upsert(new_items)
                 try:
                     from data.etl.loader import load_items
-                    from core.models import User as _User
-                    db = SessionLocal()
+                    db2 = SessionLocal()
                     try:
-                        # Use the org that has Gmail credentials configured
-                        from core.models import SourceConfig as _SC
-                        gmail_cfg = db.query(_SC).filter(_SC.source == "gmail").first()
-                        _org = gmail_cfg.org_id if gmail_cfg else None
-                        new_count = load_items(new_items, db, run_nlp=False, org_id=_org)
+                        new_count += load_items(new_items, db2, run_nlp=False, org_id=org_id)
                     finally:
-                        db.close()
+                        db2.close()
                 except Exception as etl_err:
-                    print(f"[realtime] ETL error: {etl_err}")
+                    print(f"[realtime] ETL error (org={org_id}): {etl_err}")
 
-            await ws_manager.broadcast({
-                "type": "sync_complete",
-                "new_items": new_count,
-                "timestamp": datetime.utcnow().isoformat(),
-                "sources": {
-                    r.source.value: {"items": len(r.items), "success": r.success}
-                    for r in results
-                },
-            })
+                # Broadcast urgent notifications — scoped to this org only
+                for item in new_items:
+                    meta = item.metadata or {}
+                    if (meta.get("sentiment_label") in ("negative", "very_negative")
+                            or meta.get("business_label") in ("escalation", "urgent", "crisis")):
+                        await ws_manager.broadcast({
+                            "type": "notification",
+                            "level": "critical",
+                            "source": item.source.value,
+                            "message": f"Message urgent de {item.author} : {item.title[:70]}",
+                            "item_id": item.id,
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }, org_id=org_id)
 
-            # Broadcast urgent notifications
-            for item in new_items:
-                meta = item.metadata or {}
-                if (meta.get("sentiment_label") in ("negative", "very_negative")
-                        or meta.get("business_label") in ("escalation", "urgent", "crisis")):
-                    await ws_manager.broadcast({
-                        "type": "notification",
-                        "level": "critical",
-                        "source": item.source.value,
-                        "message": f"Message urgent de {item.author} : {item.title[:70]}",
-                        "item_id": item.id,
-                        "timestamp": datetime.utcnow().isoformat(),
-                    })
+            # Ne notifier le frontend que s'il y a vraiment du nouveau —
+            # sinon chaque cycle (même vide) déclenche un rechargement
+            # complet du dashboard côté client pour rien.
+            if new_count > 0:
+                await ws_manager.broadcast({
+                    "type": "sync_complete",
+                    "new_items": new_count,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "sources": sources_summary,
+                })
 
         except asyncio.CancelledError:
             print("[realtime] Auto-sync loop stopped")
@@ -129,32 +169,54 @@ async def _realtime_sync_loop():
 
 
 async def _background_sync():
-    """Sync Gmail + ETL + NLP en arrière-plan après démarrage du serveur."""
-    print("[bg-sync] Démarrage du sync Gmail en arrière-plan...")
+    """
+    Sync + ETL + NLP en arrière-plan après démarrage du serveur (fallback si Celery
+    indisponible). Sync par organisation — jamais via le connector_manager global
+    (org-unaware, Teams/Outlook retombent en mock sans org_id) — même correctif
+    que _realtime_sync_loop. Slack exclu : sync déjà géré par son propre flux
+    (connexion OAuth + periodic_slack_sync_loop).
+    """
+    print("[bg-sync] Démarrage du sync en arrière-plan...")
     try:
-        since = datetime.utcnow() - timedelta(days=90)
-        results = await connector_manager.sync_all(since=since)
-        new_items = connector_manager.collect_items(results)
-        item_store.upsert(new_items)
-        summary = connector_manager.summary(results)
-        print(f"[bg-sync] Sync : {summary['total_items']} items récupérés")
+        from core.models import SourceConfig as _SC
+        from integrations.connectors import ConnectorManager as _CM
 
-        if new_items:
-            from data.etl.loader import load_items
-            from core.models import User as _User
-            db = SessionLocal()
-            try:
-                first_ceo = (
-                    db.query(_User)
-                    .filter(_User.role.in_(["ceo", "admin"]))
-                    .order_by(_User.created_at)
-                    .first()
-                )
-                _org = first_ceo.org_id if first_ceo else None
-                n = load_items(new_items, db, org_id=_org)
-                print(f"[bg-sync] ETL : {n} nouveaux items insérés en base")
-            finally:
-                db.close()
+        since = datetime.utcnow() - timedelta(days=90)
+
+        db0 = SessionLocal()
+        try:
+            rows = db0.query(_SC.org_id, _SC.source).filter(
+                _SC.org_id.isnot(None), _SC.source != "slack",
+            ).distinct().all()
+        finally:
+            db0.close()
+
+        by_org: dict[str, set[str]] = {}
+        for org_id, source in rows:
+            by_org.setdefault(org_id, set()).add(source)
+
+        new_items: list = []
+        total_inserted = 0
+        for org_id, sources in by_org.items():
+            targets = [SourceType(s) for s in sources if s in SourceType._value2member_map_]
+            if not targets:
+                continue
+            org_manager = _CM(configs={s: {"org_id": org_id, "use_mock": False} for s in targets})
+            results = await org_manager.sync_all(since=since, sources=targets)
+            org_items = _CM.collect_items(results)
+            new_items.extend(org_items)
+            print(f"[bg-sync] org={org_id} : {sum(len(r.items) for r in results)} items récupérés")
+
+            if org_items:
+                from data.etl.loader import load_items
+                db = SessionLocal()
+                try:
+                    total_inserted += load_items(org_items, db, org_id=org_id)
+                finally:
+                    db.close()
+
+        item_store.upsert(new_items)
+        print(f"[bg-sync] ETL : {total_inserted} nouveaux items insérés en base")
 
         from data.etl.loader import reprocess_unenriched, load_from_db
         db = SessionLocal()
@@ -292,11 +354,30 @@ async def lifespan(app: FastAPI):
     # ── 5. Démarrer la boucle de sync temps réel ──────────────
     sync_task = asyncio.create_task(_realtime_sync_loop())
 
+    # ── 6. Resync périodique par organisation (Slack) ─────────
+    from application.routes.slack_auth import periodic_slack_sync_loop
+    slack_sync_task = asyncio.create_task(periodic_slack_sync_loop())
+
+    # ── 7. Démarrer les serveurs MCP une fois pour toutes (Ask Anything) ──
+    # Évite de relancer un sous-processus Python par tool call — c'était le
+    # principal goulot d'étranglement des réponses du chatbot.
+    if settings.llm_provider.lower() == "azure":
+        from intelligence.llm.client import start_mcp_sessions
+        try:
+            await start_mcp_sessions()
+        except Exception as e:
+            print(f"[startup] Démarrage MCP échoué (fallback sans tools): {e}")
+
     yield
 
     # ── Arrêt propre ──────────────────────────────────────────
     sync_task.cancel()
+    slack_sync_task.cancel()
     stop_scheduler()
+
+    if settings.llm_provider.lower() == "azure":
+        from intelligence.llm.client import close_mcp_sessions
+        await close_mcp_sessions()
 
 
 app = FastAPI(
@@ -329,6 +410,7 @@ app.include_router(projects.router)
 app.include_router(onedrive.router)
 app.include_router(teams_auth.router)
 app.include_router(outlook_auth.router)
+app.include_router(slack_auth.router)
 app.include_router(decisions.router, prefix="/api")
 app.include_router(orchestration.router)
 app.include_router(mcp.router)
@@ -339,6 +421,7 @@ app.include_router(ws_route.router)
 app.include_router(webhooks_route.router)
 app.include_router(users_route.router)
 app.include_router(admin_route.router, prefix="/api")
+app.include_router(demo_requests_route.router)
 app.include_router(recommendations.router)
 
 

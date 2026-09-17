@@ -17,6 +17,7 @@ interface ProjectOHSData {
   color:         string;
   linked_msgs:   number;
   signals_tasks: number;
+  clickup_tasks: number;
   computed_at:   string;
   breakdown:     Dimension[];
 }
@@ -103,7 +104,7 @@ export default function ProjectOHSCard({ projectId }: { projectId: string }) {
 
   if (error || !data) return null;
 
-  const hasData = data.linked_msgs > 0 || data.signals_tasks > 0;
+  const hasData = data.linked_msgs > 0 || data.signals_tasks > 0 || data.clickup_tasks > 0;
 
   return (
     <div style={{

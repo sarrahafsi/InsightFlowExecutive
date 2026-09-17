@@ -7,21 +7,26 @@ Orgs      : GET /admin/orgs · PATCH /admin/orgs/{id} · DELETE /admin/orgs/{id}
 Users     : GET /admin/users · PATCH /admin/users/{id}
 Connectors: GET /admin/connectors · PATCH /admin/connectors/{key}
 AI/ML     : GET /admin/ai/status · POST /admin/ai/retrain
+Monitoring: GET /admin/ai/drift · GET /admin/ai/scheduler · GET /admin/ai/agent
+            POST /admin/ai/drift/refresh · POST /admin/ai/auto-retrain/trigger
 Stats     : GET /admin/stats
 """
+import asyncio
+
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.database import get_db
-from core.models import ConnectorCatalog, Organisation, User, SourceConfig, MessageRaw
+from core.models import ConnectorCatalog, Organisation, User, SourceConfig, MessageRaw, DemoRequest
 from core.security import require_superadmin
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 VALID_PLANS = {"free", "pro", "enterprise"}
-VALID_ROLES = {"ceo", "pm"}
+VALID_ROLES = {"ceo"}
+VALID_DEMO_STATUSES = {"NEW", "CONTACTED", "DEMO_SCHEDULED", "CLOSED"}
 
 
 # ── Stats ─────────────────────────────────────────────────────────────────────
@@ -203,6 +208,53 @@ def update_connector(
     return {"key": conn.key, "enabled": conn.enabled, "coming_soon": conn.coming_soon}
 
 
+# ── Demandes de démo (leads commerciaux) ────────────────────────────────────────
+
+@router.get("/demo-requests")
+def list_demo_requests(
+    _: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    reqs = db.query(DemoRequest).order_by(DemoRequest.created_at.desc()).all()
+    return [
+        {
+            "id":           r.id,
+            "first_name":   r.first_name,
+            "last_name":    r.last_name,
+            "email":        r.email,
+            "company":      r.company,
+            "job_title":    r.job_title,
+            "company_size": r.company_size,
+            "sources":      r.sources or [],
+            "message":      r.message,
+            "status":       r.status,
+            "created_at":   r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in reqs
+    ]
+
+
+class UpdateDemoRequest(BaseModel):
+    status: str
+
+
+@router.patch("/demo-requests/{req_id}")
+def update_demo_request(
+    req_id: int,
+    body: UpdateDemoRequest,
+    _: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    if body.status not in VALID_DEMO_STATUSES:
+        raise HTTPException(status_code=422, detail=f"Statut invalide : {VALID_DEMO_STATUSES}")
+    req = db.query(DemoRequest).filter(DemoRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Demande introuvable")
+    req.status = body.status
+    db.commit()
+    return {"id": req.id, "status": req.status}
+
+
 # ── AI / ML Supervision ───────────────────────────────────────────────────────
 
 @router.get("/ai/status")
@@ -231,5 +283,76 @@ async def ai_retrain(
             raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", "Erreur"))
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+# ── AI / ML Monitoring (drift, scheduler, agent autonome) ──────────────────────
+
+@router.get("/ai/drift")
+async def ai_drift(_: User = Depends(require_superadmin)):
+    """Proxy — derniers rapports de drift sauvegardés (sentiment + emotion), sans recalcul."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            sentiment_r, emotion_r = await asyncio.gather(
+                client.get("http://localhost:8000/api/ml/drift/last", params={"task": "sentiment"}),
+                client.get("http://localhost:8000/api/ml/drift/last", params={"task": "emotion"}),
+            )
+            return {"sentiment": sentiment_r.json(), "emotion": emotion_r.json()}
+    except Exception as e:
+        return {"error": str(e), "note": "ML service may not be running"}
+
+
+class DriftRefreshRequest(BaseModel):
+    task: str = "all"          # sentiment | emotion | all
+    window_days: int = 30
+
+
+@router.post("/ai/drift/refresh")
+async def ai_drift_refresh(
+    body: DriftRefreshRequest,
+    _: User = Depends(require_superadmin),
+):
+    """Recalcule le drift maintenant (peut prendre quelques secondes — évalue le modèle)."""
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.get(
+                "http://localhost:8000/api/ml/drift",
+                params={"task": body.task, "window_days": body.window_days},
+            )
+            return r.json()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.get("/ai/scheduler")
+async def ai_scheduler(_: User = Depends(require_superadmin)):
+    """Proxy — état du scheduler auto-retraining (prochain run, dernier run)."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get("http://localhost:8000/api/ml/scheduler")
+            return r.json()
+    except Exception as e:
+        return {"error": str(e), "note": "ML service may not be running"}
+
+
+@router.get("/ai/agent")
+async def ai_agent(_: User = Depends(require_superadmin)):
+    """Proxy — dernière décision de l'agent autonome de continuous learning."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get("http://localhost:8000/api/ml/agent/status")
+            return r.json()
+    except Exception as e:
+        return {"error": str(e), "note": "ML service may not be running"}
+
+
+@router.post("/ai/auto-retrain/trigger")
+async def ai_auto_retrain_trigger(_: User = Depends(require_superadmin)):
+    """Force immédiatement un check auto-retraining (scheduler nightly), sans attendre 2h."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post("http://localhost:8000/api/ml/auto-retrain/trigger")
+            return r.json()
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))

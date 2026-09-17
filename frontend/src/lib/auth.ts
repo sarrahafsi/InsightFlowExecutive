@@ -2,13 +2,15 @@ const TOKEN_KEY = "insightflow_token";
 const USER_KEY  = "insightflow_user";
 
 export interface AuthUser {
-  id:         number;
-  org_id:     string | null;
-  email:      string;
-  full_name:  string;
-  role:       "superadmin" | "ceo" | "pm";
-  is_active:  boolean;
-  created_at: string;
+  id:             number;
+  org_id:         string | null;
+  org_plan:       "free" | "pro" | "enterprise";
+  email:          string;
+  full_name:      string;
+  role:           "superadmin" | "ceo";
+  is_active:      boolean;
+  email_verified: boolean;
+  created_at:     string;
 }
 
 export function getToken(): string | null {
@@ -51,16 +53,13 @@ export function logout(): void {
 export const ROLE_LABELS: Record<string, string> = {
   superadmin: "Super Admin",
   ceo:        "CEO",
-  pm:         "Project Manager",
 };
 
 export const ROLE_COLORS: Record<string, string> = {
   superadmin: "#ef4444",
   ceo:        "#f59e0b",
-  pm:         "#3b82f6",
 };
 
 // Helper guards (frontend)
 export const isSuperAdmin = (user: AuthUser) => user.role === "superadmin";
 export const isCEO        = (user: AuthUser) => user.role === "ceo" || user.role === "superadmin";
-export const isPM         = (user: AuthUser) => user.role === "pm";

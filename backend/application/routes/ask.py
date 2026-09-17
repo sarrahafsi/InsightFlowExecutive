@@ -14,10 +14,12 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from core.database import SessionLocal
+from core.models import User
+from core.security import get_current_org_user
 from intelligence.llm.client import complete, get_provider_info
 
 logger = logging.getLogger(__name__)
@@ -143,18 +145,42 @@ Voici les informations clés extraites des messages :
 * [action concrète 2]
 ...
 
-Puis liste les sources utilisées avec leur numéro [1], [2]...
+RÈGLE CRITIQUE — NE JAMAIS exposer les détails techniques : les noms de tools
+(search_knowledge_base, get_risk_items, get_recent_emails, get_jira_tickets,
+get_analytics_summary...) ne doivent JAMAIS apparaître dans ta réponse, ni en
+liste finale, ni cités au fil du texte ("d'après get_recent_emails..."). Le CEO
+qui lit ne doit voir AUCUN nom de fonction — parle des sources en langage
+naturel ("les emails récents", "les tickets Jira") si besoin, jamais du nom
+technique de l'outil. Utilise uniquement les références (Messages [N]) dans le
+texte — l'interface affiche déjà les sources séparément (cartes avec messages).
 
 Si aucune donnée trouvée après recherche complète, dis-le clairement sans inventer."""
 
 SYSTEM_CHITCHAT = """Tu es l'assistant IA personnel d'un CEO d'entreprise.
 Réponds de façon naturelle et brève à ce message de salutation ou conversation générale."""
 
+# Utilisé quand il n'y a PAS d'appel de tools (Ollama, OpenAI, ou fallback timeout
+# Azure) : le modèle reçoit directement les messages en texte, donc pas
+# d'instructions "appelle tel tool" (il ne peut rien appeler) et un format plus
+# souple pour ne pas le pousser à inventer des détails pour remplir les cases.
+SYSTEM_ANALYST_RAG = """Tu es l'assistant IA personnel d'un CEO d'entreprise.
+Ton rôle est d'analyser les messages fournis ci-dessous (emails, Slack, Jira) et de répondre à la question du CEO.
+
+RÈGLE CRITIQUE — NE JAMAIS INVENTER : Base-toi UNIQUEMENT sur les messages fournis. N'invente
+JAMAIS de date, de nom, de chiffre ou de fait qui n'apparaît pas explicitement dans ces messages.
+Si l'information demandée n'y figure pas, dis-le clairement plutôt que de la déduire ou l'inventer.
+
+FORMAT : Structure ta réponse avec des sections en gras pertinentes pour la question
+(ex: **Analyse**, **Recommandations**), reste concis, et cite le message concerné avec
+(Messages [N]) uniquement quand tu reprends un fait précis qui s'y trouve.
+
+Si aucun message pertinent n'a été fourni, dis-le clairement sans inventer."""
+
 
 # ── Routes ────────────────────────────────────────────────────
 
 @router.post("", response_model=AskResponse)
-async def ask(body: AskRequest):
+async def ask(body: AskRequest, current_user: User = Depends(get_current_org_user)):
     """
     Pipeline Ask Anything :
     - Ollama  : RAG ChromaDB → prompt → réponse
@@ -174,9 +200,11 @@ async def ask(body: AskRequest):
     effective_provider = req_provider or provider_info["provider"]
     provider_name = effective_provider
 
-    # Detect temporal filter and build date-aware system prompt
+    # Detect temporal filter and build date-aware system prompts
     since_date = _parse_temporal_filter(query)
-    system_prompt = SYSTEM_ANALYST + _build_date_context()
+    date_context = _build_date_context()
+    system_prompt = SYSTEM_ANALYST + date_context          # utilisé avec de vrais tools (Azure)
+    system_prompt_rag = SYSTEM_ANALYST_RAG + date_context   # utilisé sans tools (Ollama/OpenAI/fallback)
 
     # ── Chitchat : réponse directe sans contexte ──────────────
     if _is_chitchat(query):
@@ -205,19 +233,21 @@ async def ask(body: AskRequest):
                     use_tools=True,
                     db=db,
                     provider=req_provider,
+                    org_id=current_user.org_id,
+                    since_date=since_date,
                 ),
                 timeout=90.0,
             )
         except asyncio.TimeoutError:
             logger.warning("[Ask/Azure] MCP timeout — fallback RAG seul")
-            rag_docs = _retrieve(query, top_k=body.top_k, source_filter=body.source_filter, since_date=since_date)
+            rag_docs = _retrieve(query, top_k=body.top_k, source_filter=body.source_filter, since_date=since_date, org_id=current_user.org_id)
             rag_relevant = [d for d in rag_docs if d.score <= 0.75]
             ctx = "\n\n---\n\n".join(
                 f"[{i+1}] {d.author} ({d.source}) — {d.timestamp[:10]}\n{d.text[:400]}"
                 for i, d in enumerate(rag_relevant)
             )
             answer = await complete(
-                system=system_prompt,
+                system=system_prompt_rag,
                 user=f"MESSAGES :\n{ctx}\n\nQUESTION : {query}",
                 use_tools=False,
                 provider=req_provider,
@@ -225,7 +255,7 @@ async def ask(body: AskRequest):
         finally:
             db.close()
 
-        rag_docs = _retrieve(query, top_k=body.top_k, source_filter=body.source_filter, since_date=since_date)
+        rag_docs = _retrieve(query, top_k=body.top_k, source_filter=body.source_filter, since_date=since_date, org_id=current_user.org_id)
         rag_relevant = [d for d in rag_docs if d.score <= 0.55]
         sources = [
             SourceDoc(
@@ -252,12 +282,12 @@ async def ask(body: AskRequest):
             sources=[], query=query, indexed_count=0, provider=provider_name,
         )
 
-    docs = retrieve(query, top_k=body.top_k, source_filter=body.source_filter, since_date=since_date)
+    docs = retrieve(query, top_k=body.top_k, source_filter=body.source_filter, since_date=since_date, org_id=current_user.org_id)
 
     if not docs and since_date:
-        docs = retrieve(query, top_k=body.top_k, source_filter=body.source_filter)
+        docs = retrieve(query, top_k=body.top_k, source_filter=body.source_filter, org_id=current_user.org_id)
         if docs:
-            system_prompt += "\n\nATTENTION : Aucun message trouvé pour la période demandée. Les résultats ci-dessous sont les plus récents disponibles — précise leurs dates dans ta réponse."
+            system_prompt_rag += "\n\nATTENTION : Aucun message trouvé pour la période demandée. Les résultats ci-dessous sont les plus récents disponibles — précise leurs dates dans ta réponse."
 
     relevant = [d for d in docs if d.score <= 0.75]
 
@@ -276,7 +306,7 @@ async def ask(body: AskRequest):
     )
 
     answer = await complete(
-        system=system_prompt,
+        system=system_prompt_rag,
         user=f"MESSAGES :\n{context}\n\nQUESTION : {query}",
         use_tools=False,
         provider=req_provider,
@@ -301,18 +331,18 @@ async def ask(body: AskRequest):
 
 
 @router.post("/reindex")
-async def reindex():
+async def reindex(current_user: User = Depends(get_current_org_user)):
     from intelligence.rag.embedder import index_from_db
     db = SessionLocal()
     try:
-        n = index_from_db(db, limit=2000)
+        n = index_from_db(db, limit=2000, org_id=current_user.org_id)
         return {"indexed": n, "message": f"{n} messages indexés dans ChromaDB."}
     finally:
         db.close()
 
 
 @router.get("/status")
-async def index_status():
+async def index_status(current_user: User = Depends(get_current_org_user)):
     try:
         from intelligence.rag.embedder import get_collection
         col = get_collection()

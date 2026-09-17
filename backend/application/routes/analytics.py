@@ -5,7 +5,7 @@ from application.deps import get_store
 from data.analytics import compute_overview, ANALYTICS_REGISTRY
 from integrations.connectors.schemas import SourceType
 from core.models import User
-from core.security import get_current_user
+from core.security import get_current_org_user
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -13,30 +13,24 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 @router.get("/overview")
 async def overview(
     store: Annotated[ItemStore, Depends(get_store)],
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     since_days: int = Query(30, ge=1, le=365),
 ):
     result = compute_overview(store, since_days)
-    # connected_sources = sources with credentials OR sources with any synced data (all-time)
+    # connected_sources = sources with live credentials for this org right now.
+    # Anciennement une union avec "sources ayant eu des messages un jour" — ça
+    # gardait une source comptée pour toujours meme apres deconnexion (le compteur
+    # ne redescendait jamais). Teams/mock (pas de credentials, demo par defaut)
+    # ne compte donc plus ici tant qu'il n'est pas reellement connecte.
     try:
         from core.database import SessionLocal
-        from core.models import SourceConfig as _SC, MessageRaw as _MR
-        import logging as _log
+        from core.models import SourceConfig as _SC
         db = SessionLocal()
         try:
-            # Sources with saved credentials for this org
             cfg_rows = db.query(_SC.source).filter(
                 _SC.org_id == current_user.org_id
             ).all()
-            configured = {r.source for r in cfg_rows}
-
-            # Sources that have any items ever synced for this org (no time filter)
-            msg_rows = db.query(_MR.source).filter(
-                _MR.org_id == current_user.org_id
-            ).distinct().all()
-            synced = {r.source for r in msg_rows}
-
-            result["connected_sources"] = len(configured | synced)
+            result["connected_sources"] = len({r.source for r in cfg_rows})
         finally:
             db.close()
     except Exception as e:
@@ -71,7 +65,7 @@ async def jira_debug(
 def team_overload(
     since_days: int = Query(7, ge=1, le=90),
     limit: int = Query(10, ge=1, le=50),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
 ):
     """Top N auteurs les plus surchargés sur la période."""
     from datetime import datetime, timedelta
@@ -129,7 +123,7 @@ def team_overload(
 @router.get("/attribution")
 async def attribution(
     store: Annotated[ItemStore, Depends(get_store)],
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     since_days: int = Query(7, ge=1, le=90),
 ):
     from data.analytics.engine import compute_attribution
@@ -139,7 +133,7 @@ async def attribution(
 @router.get("/messages")
 async def filtered_messages(
     store: Annotated[ItemStore, Depends(get_store)],
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     since_days: int = Query(30, ge=1, le=365),
     business_label: str | None = Query(None),
     emotion_label:  str | None = Query(None),
@@ -164,7 +158,7 @@ async def filtered_messages(
             "title":          (item.title or "")[:120],
             "author":         item.author or "",
             "source":         item.source,
-            "timestamp":      item.timestamp.isoformat(),
+            "timestamp":      item.timestamp.isoformat() + "Z",
             "business_label": _get_business_label(item),
             "emotion_label":  emotion,
             "sentiment":      (item.metadata or {}).get("sentiment_label", ""),
@@ -180,7 +174,7 @@ async def filtered_messages(
 @router.get("/heatmap")
 async def heatmap(
     store: Annotated[ItemStore, Depends(get_store)],
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     since_days: int = Query(30, ge=1, le=365),
 ):
     from data.analytics.engine import compute_heatmap
@@ -190,7 +184,7 @@ async def heatmap(
 @router.get("/priority-messages")
 async def priority_messages(
     store: Annotated[ItemStore, Depends(get_store)],
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     since_days: int = Query(7, ge=1, le=365),
     limit: int = Query(3, ge=1, le=10),
 ):

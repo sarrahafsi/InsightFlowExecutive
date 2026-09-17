@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import API from "@/lib/api";
+import API, { isUpgradeRequired } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import ReactMarkdown from "react-markdown";
 
@@ -73,30 +73,38 @@ function DimBar({ dim }: { dim: Dimension }) {
   );
 }
 
-/* ── Main panel ────────────────────────────────────────────────── */
+/* ── Main panel — État de l'organisation (score OHS) + résumé hebdomadaire,
+   réunis dans une seule section comme à l'origine. Le résumé se génère
+   automatiquement (plus besoin de cliquer), avec le contenu du Monday Brief. */
 export default function OrganizationHealthPanel({ sinceDays = 7 }: { sinceDays?: number }) {
   const { t, locale } = useI18n();
-  const [ohs, setOhs]       = useState<OHSData | null>(null);
+  const [ohs, setOhs]         = useState<OHSData | null>(null);
   const [ohsLoading, setOhsL] = useState(true);
-  const [brief, setBrief]   = useState<any | null>(null);
-  const [generating, setGen] = useState(false);
-  const [genError, setGenErr] = useState<string | null>(null);
+  const [ohsLocked, setOhsLocked] = useState(false);
 
-  const generate = async () => {
-    setGen(true); setGenErr(null);
+  const [brief, setBrief]     = useState<any | null>(null);
+  const [generating, setGen]  = useState(false);
+  const [genError, setGenErr] = useState<string | null>(null);
+  const [briefLocked, setBriefLocked] = useState(false);
+
+  const generateBrief = async () => {
+    setGen(true); setGenErr(null); setBriefLocked(false);
     try {
-      const r = await API.get(`/api/brief/weekly?since_days=${sinceDays}`);
+      const r = await API.get(`/api/brief/weekly?since_days=${sinceDays}&lang=${locale}`);
       setBrief(r.data);
     } catch (e: any) {
-      setGenErr(e.message);
+      if (isUpgradeRequired(e)) setBriefLocked(true);
+      else setGenErr(e.message);
     } finally { setGen(false); }
   };
 
   useEffect(() => {
     API.get("/api/health/ohs?window_days=7")
-      .then(r => setOhs(r.data)).catch(() => {})
+      .then(r => setOhs(r.data))
+      .catch(e => { if (isUpgradeRequired(e)) setOhsLocked(true); })
       .finally(() => setOhsL(false));
-    generate();
+    generateBrief();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const trendColor = !ohs ? "#94a3b8" : ohs.trend > 0 ? "#22c55e" : ohs.trend < 0 ? "#ef4444" : "#94a3b8";
@@ -130,7 +138,7 @@ export default function OrganizationHealthPanel({ sinceDays = 7 }: { sinceDays?:
           </h2>
         </div>
         <button
-          onClick={generate}
+          onClick={generateBrief}
           disabled={generating}
           style={{
             padding: "8px 18px", borderRadius: 10,
@@ -142,7 +150,7 @@ export default function OrganizationHealthPanel({ sinceDays = 7 }: { sinceDays?:
             transition: "all 0.15s",
           }}
         >
-          {generating ? "Génération..." : brief ? "↻ Régénérer" : "Générer le résumé"}
+          {generating ? "Génération..." : "↻ Régénérer le résumé"}
         </button>
       </div>
 
@@ -208,26 +216,30 @@ export default function OrganizationHealthPanel({ sinceDays = 7 }: { sinceDays?:
                 {ohs.breakdown.map(d => <DimBar key={d.key} dim={d} />)}
               </div>
             </>
+          ) : ohsLocked ? (
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 24, marginBottom: 6 }}>🔒</div>
+              <p style={{ fontSize: 12, color: "var(--text-secondary)" }}>Score OHS — Fonctionnalité Pro</p>
+            </div>
           ) : (
             <p style={{ fontSize: 12, color: "var(--text-secondary)", textAlign: "center" }}>Score indisponible</p>
           )}
         </div>
 
-        {/* ── Right : Brief ── */}
+        {/* ── Right : résumé de la semaine (Monday Brief) ── */}
         <div style={{ flex: 1, minWidth: 260, padding: "1.25rem 1.75rem" }}>
-          {!brief && !genError && (
+          {briefLocked && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 160, gap: 10 }}>
-              <div style={{
-                width: 44, height: 44, borderRadius: 12,
-                background: "rgba(59,130,246,0.08)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 20,
-              }}>
-                ✦
-              </div>
+              <div style={{ fontSize: 24 }}>🔒</div>
               <p style={{ fontSize: 13, textAlign: "center", color: "var(--text-secondary)", lineHeight: 1.6, maxWidth: 280, margin: 0 }}>
-                Cliquez sur "Générer le résumé" pour obtenir une analyse narrative de la période.
+                Le brief hebdomadaire est une fonctionnalité Pro. Passez à un plan supérieur pour le débloquer.
               </p>
+            </div>
+          )}
+
+          {generating && !brief && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 160 }}>
+              <div style={{ width: 18, height: 18, border: "2px solid var(--border)", borderTop: "2px solid #3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
             </div>
           )}
 

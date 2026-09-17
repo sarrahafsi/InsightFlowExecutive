@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import API from "@/lib/api";
+import API, { isUpgradeRequired } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 
 export default function MondayBrief({ sinceDays = 7 }: { sinceDays?: number }) {
@@ -8,15 +8,18 @@ export default function MondayBrief({ sinceDays = 7 }: { sinceDays?: number }) {
   const [brief, setBrief]     = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
+  const [locked, setLocked]   = useState(false);
 
   const generate = async () => {
     setLoading(true);
     setError(null);
+    setLocked(false);
     try {
       const r = await API.get(`/api/brief/weekly?since_days=${sinceDays}&lang=${locale}`);
       setBrief(r.data);
     } catch (e: any) {
-      setError(e.message);
+      if (isUpgradeRequired(e)) setLocked(true);
+      else setError(e.message);
     } finally {
       setLoading(false);
     }
@@ -50,7 +53,12 @@ export default function MondayBrief({ sinceDays = 7 }: { sinceDays?: number }) {
         </button>
       </div>
 
-      {error && (
+      {locked && (
+        <div style={{ marginTop: 16, padding: "10px 14px", background: "rgba(147,51,234,0.2)", border: "1px solid rgba(147,51,234,0.4)", borderRadius: 10, fontSize: 12 }}>
+          🔒 Le brief hebdomadaire est une fonctionnalité Pro — passez à un plan supérieur pour le débloquer.
+        </div>
+      )}
+      {error && !locked && (
         <div style={{ marginTop: 16, padding: "10px 14px", background: "rgba(239,68,68,0.2)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 10, fontSize: 12 }}>
           {error}
         </div>

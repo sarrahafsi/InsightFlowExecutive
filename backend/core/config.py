@@ -1,3 +1,5 @@
+import os
+
 from pydantic_settings import BaseSettings
 
 
@@ -8,13 +10,12 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://postgres:postgres@localhost:5432/insightflow"
 
-    # Analyse d'images (captures d'ecran pro) - OCR (Tesseract) + Vision (BLIP-base)
-    # Retenus par benchmark Phase 0 (backend/BENCHMARK_RESULTS.md)
-    tesseract_cmd_path: str = r"C:\Users\lenovo\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
-    vision_model_name: str = "Salesforce/blip-image-captioning-base"
-    vision_device: str = "cpu"
+    slack_bot_token: str = ""   # legacy/dev fallback — single global workspace, no org_id
 
-    slack_bot_token: str = ""
+    # Slack OAuth v2 (per-org "Add to Slack" install — one Slack App, many workspaces)
+    slack_client_id:     str = ""
+    slack_client_secret: str = ""
+    slack_redirect_uri:  str = "http://localhost:8000/auth/slack/callback"
 
     jira_base_url: str = ""
     jira_email: str = ""
@@ -79,8 +80,43 @@ class Settings(BaseSettings):
     secret_key: str = "insightflow-secret-change-in-production"
     access_token_expire_hours: int = 8
 
+    # Encryption at rest for connected-app tokens (Gmail/Outlook/Teams/Jira/...)
+    # stored in source_configs.config. Generate with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Keep this OUT of version control and separate from SECRET_KEY — losing it
+    # means every connected source must be reconnected, but rotating SECRET_KEY
+    # (JWT) must never rotate this too, and vice versa.
+    token_encryption_key: str = ""
+
+    # Speech-to-text (messages vocaux Slack/Teams) — faster-whisper, local
+    whisper_model_size: str = "small"   # tiny/base/small/medium/large-v3
+    whisper_device: str = "cpu"
+
+    # Analyse d'images (captures d'écran pro) — OCR (Tesseract) + Vision (BLIP-base)
+    # Retenus par benchmark Phase 0 (backend/BENCHMARK_RESULTS.md)
+    tesseract_cmd_path: str = r"C:\Users\lenovo\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
+    vision_model_name: str = "Salesforce/blip-image-captioning-base"
+    vision_device: str = "cpu"
+
+    # HuggingFace Hub token (accès au modèle emotion, sarahaf123/insightflow-emotion-xlm-v1)
+    hf_token: str = ""
+
+    # SMTP (email de vérification) — n'importe quel serveur SMTP standard
+    # ex: Gmail SMTP avec mot de passe d'application, ou relais SendGrid/Mailgun
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_use_tls: bool = True
+
     class Config:
         env_file = ".env"
 
 
 settings = Settings()
+
+# huggingface_hub lit HF_TOKEN directement depuis l'environnement système, pas depuis .env
+# (pydantic-settings ne propage pas .env dans os.environ) — on le fait ici explicitement.
+if settings.hf_token:
+    os.environ.setdefault("HF_TOKEN", settings.hf_token)

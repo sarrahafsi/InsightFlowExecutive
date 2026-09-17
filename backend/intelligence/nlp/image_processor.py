@@ -52,8 +52,8 @@ Neither the OCR text nor the vision caption can reliably report a chart's \
 trend direction on their own — trust this signal for that specific fact when \
 present, alongside the OCR text for exact values.
 
-Combine all available signals into a short structured JSON object, in \
-English, with exactly these fields:
+Combine all available signals into a short structured JSON object with \
+exactly these fields:
 {
   "image_type": one short category, e.g. "dashboard", "ticket", "error", \
 "chat", "chart", "table", "document", "workflow", "email", or "other",
@@ -67,7 +67,12 @@ not inferable
 }
 
 Only rely on the OCR text for exact numbers/names/statuses — never invent \
-ones that are not in the OCR text. Respond with ONLY the JSON object, no \
+ones that are not in the OCR text. "image_type" and "status" must stay one \
+of the fixed English category values listed above — but "summary" and \
+"business_context" must ALWAYS be written in FRENCH, regardless of the \
+language of the OCR text or the vision caption (the vision caption is \
+always in English regardless of the image's actual language — do not let \
+it dictate the output language). Respond with ONLY the JSON object, no \
 other text."""
 
 
@@ -143,9 +148,9 @@ async def process_image_async(image_path: str | Path) -> dict[str, Any]:
     Celery avec asyncio, etc.) pour eviter le conflit "asyncio.run() dans une
     boucle deja active" (RuntimeError). Ne leve jamais d'exception."""
     image_path = Path(image_path)
-    ocr_text = extract_text(image_path)
-    vision_caption = generate_caption(image_path)
-    line_trend = detect_line_trend(image_path)
+    ocr_text = await asyncio.to_thread(extract_text, image_path)
+    vision_caption = await asyncio.to_thread(generate_caption, image_path)
+    line_trend = await asyncio.to_thread(detect_line_trend, image_path)
 
     structured = await _fuse_with_llm_async(ocr_text, vision_caption, line_trend)
     if structured is None:

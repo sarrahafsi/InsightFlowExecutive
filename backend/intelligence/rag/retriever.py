@@ -36,6 +36,7 @@ def retrieve(
     top_k: int = 5,
     source_filter: Optional[str] = None,
     since_date: Optional[str] = None,
+    org_id: Optional[str] = None,
 ) -> list[RetrievedDoc]:
     """
     Cherche les top_k messages les plus pertinents pour `query`.
@@ -45,6 +46,7 @@ def retrieve(
         top_k:         Nombre de résultats à retourner
         source_filter: Filtrer par source (gmail / slack / jira) — optionnel
         since_date:    ISO date string pour filtrer les messages récents (ex: "2026-05-23")
+        org_id:        Restreint la recherche aux messages de cette organisation — isolation multi-tenant
 
     Returns:
         Liste de RetrievedDoc triés par pertinence (meilleur en premier)
@@ -66,10 +68,17 @@ def retrieve(
 
         # Build where filter (ChromaDB $and for multiple conditions)
         where_clauses = []
+        if org_id:
+            where_clauses.append({"org_id": {"$eq": org_id}})
         if source_filter:
             where_clauses.append({"source": {"$eq": source_filter}})
         if since_date:
-            where_clauses.append({"timestamp": {"$gte": since_date}})
+            from datetime import datetime
+            try:
+                since_epoch = datetime.fromisoformat(since_date).timestamp()
+                where_clauses.append({"timestamp_epoch": {"$gte": since_epoch}})
+            except ValueError:
+                logger.warning("[RAG/Retriever] since_date invalide ignoré: %s", since_date)
 
         if len(where_clauses) == 1:
             kwargs["where"] = where_clauses[0]

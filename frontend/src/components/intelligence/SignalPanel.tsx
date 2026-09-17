@@ -366,7 +366,7 @@ export default function SignalPanel({ data, sinceDays = 30 }: { data: Intelligen
           💡 {insight}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2rem" }}>
+        <div className="rf-grid-2" style={{ gap: "2rem" }}>
 
           {/* LEFT — Points d'attention */}
           <div>

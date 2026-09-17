@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from core.database import get_db
 from core.models import DecisionLog, User
-from core.security import get_current_user
+from core.security import get_current_org_user
 
 router = APIRouter(prefix="/decisions", tags=["decisions"])
 
@@ -37,7 +37,7 @@ def _fmt(r: DecisionLog) -> dict:
 
 @router.get("")
 def list_decisions(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     db: Session = Depends(get_db),
 ):
     rows = db.query(DecisionLog).filter(
@@ -49,7 +49,7 @@ def list_decisions(
 @router.post("", status_code=201)
 def create_decision(
     body: DecisionCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     db: Session = Depends(get_db),
 ):
     row = DecisionLog(org_id=current_user.org_id, title=body.title, context=body.context)
@@ -63,7 +63,7 @@ def create_decision(
 def update_decision(
     decision_id: int,
     body: DecisionUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     db: Session = Depends(get_db),
 ):
     row = db.query(DecisionLog).filter(
@@ -90,7 +90,7 @@ def update_decision(
 @router.delete("/{decision_id}", status_code=204)
 def delete_decision(
     decision_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
     db: Session = Depends(get_db),
 ):
     row = db.query(DecisionLog).filter(

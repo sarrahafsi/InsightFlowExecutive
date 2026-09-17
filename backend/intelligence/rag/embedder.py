@@ -1,7 +1,7 @@
 """
 InsightFlow RAG — Embedder & ChromaDB Index
 ============================================
-- Modèle : sentence-transformers/all-MiniLM-L6-v2 (léger, 100% local)
+- Modèle : sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 (multilingue FR/EN, 100% local)
 - Vector store : ChromaDB persistant sur disque (backend/chroma_db/)
 - Singleton : un seul client ChromaDB partagé dans le processus
 
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -26,7 +27,11 @@ CHROMA_DIR   = BACKEND_DIR / "chroma_db"
 CHROMA_DIR.mkdir(exist_ok=True)
 
 COLLECTION_NAME = "insightflow_messages"
-EMBED_MODEL     = "sentence-transformers/all-MiniLM-L6-v2"
+# Multilingue (FR/EN) — all-MiniLM-L6-v2 echouait totalement (P@1=0.00) sur les
+# requetes dont la langue differe de celle du document source (ex: question EN
+# sur un email FR), un cas reel vu le melange de sources InsightFlow (Gmail
+# souvent FR, Jira/Slack souvent EN). Voir backend/BENCHMARK_RESULTS_EMBEDDINGS.md.
+EMBED_MODEL     = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 # ── Singletons (lazy init) ──────────────────────────────────────
 _chroma_client: Optional[object]     = None
@@ -40,7 +45,7 @@ def _get_embed_fn():
     if _embed_fn is None:
         from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
         _embed_fn = SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
-        logger.info("[RAG/Embedder] Modèle d'embedding chargé : %s", EMBED_MODEL)
+        logger.info("[RAG/Embedder] Modèle d'embedding chargé : %s", EMBED_MODEL) #chargement de modele
     return _embed_fn
 
 
@@ -52,8 +57,8 @@ def get_collection():
         _chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
         _collection = _chroma_client.get_or_create_collection(
             name=COLLECTION_NAME,
-            embedding_function=_get_embed_fn(),
-            metadata={"hnsw:space": "cosine"},
+            embedding_function=_get_embed_fn(), 
+            metadata={"hnsw:space": "cosine"},  #on compare par cosinus pour les embeddings
         )
         logger.info(
             "[RAG/Embedder] Collection '%s' prête — %d documents indexés.",
@@ -73,18 +78,35 @@ def _build_document(item) -> tuple[str, dict, str]:
     content = (item.content or "").strip()
     text    = f"{title}\n\n{content}"[:2000]   # ChromaDB limite la taille
 
+    # item peut etre un DataItem (timestamp: datetime) ou un EnrichedItem —
+    # ce dernier stocke timestamp en str (cf. intelligence/nlp/base.py), ce
+    # qui faisait planter .isoformat()/.timestamp() ci-dessous des qu'un item
+    # enrichi en temps reel (load_items(run_nlp=True)) etait indexe (incident
+    # "'str' object has no attribute 'isoformat'").
+    ts = item.timestamp
+    if isinstance(ts, str):
+        try:
+            ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            ts = None
+
     meta = item.metadata or {}
     metadata = {
         "source":           str(item.source or ""),
         "author":           str(item.author or ""),
         "author_email":     str(meta.get("from_email") or ""),
-        "timestamp":        str(item.timestamp.isoformat() if item.timestamp else ""),
+        "timestamp":        str(ts.isoformat() if ts else ""),
+        # ChromaDB >=1.0 exige un nombre pour $gte/$gt/$lt — un filtre sur le
+        # "timestamp" (string ISO) plantait silencieusement et retournait 0
+        # résultat (incident 03/09/2026). Champ numérique dédié pour le filtre.
+        "timestamp_epoch":  ts.timestamp() if ts else 0.0,
         "title":            title[:200],
         "sentiment_label":  str(meta.get("sentiment_label") or ""),
         "emotion_label":    str(meta.get("emotion_label") or ""),
         "business_label":   str(meta.get("business_label") or ""),
         "topic":            str(meta.get("topic") or ""),
         "url":              str(item.url or ""),
+        "org_id":           str(meta.get("org_id") or ""),
     }
     return text, metadata, str(item.id)
 
@@ -141,20 +163,19 @@ def index_items(items: list) -> int:
         return 0
 
 
-def index_from_db(db, limit: int = 2000) -> int:
+def index_from_db(db, limit: int = 2000, org_id: str | None = None) -> int:
     """
-    (Ré)indexe tous les messages depuis PostgreSQL.
-    Appelé au démarrage ou via POST /api/ask/reindex.
+    (Ré)indexe les messages depuis PostgreSQL.
+    org_id=None réindexe TOUTES les organisations (usage admin/tâche planifiée) ;
+    sinon réindexe uniquement les messages de l'org donnée (usage POST /api/ask/reindex).
     """
     from integrations.connectors.schemas import DataItem
     from core.models import MessageRaw
 
-    rows = (
-        db.query(MessageRaw)
-        .order_by(MessageRaw.timestamp.desc())
-        .limit(limit)
-        .all()
-    )
+    query = db.query(MessageRaw)
+    if org_id is not None:
+        query = query.filter(MessageRaw.org_id == org_id)
+    rows = query.order_by(MessageRaw.timestamp.desc()).limit(limit).all()
 
     if not rows:
         logger.info("[RAG/Embedder] Aucun message à indexer.")
@@ -178,6 +199,7 @@ def index_from_db(db, limit: int = 2000) -> int:
                     "emotion_label":   r.emotion_label  or "",
                     "topic":           r.topic          or "",
                     "business_label":  r.business_label or "",
+                    "org_id":          r.org_id or "",
                 },
             ))
         except Exception:

@@ -74,6 +74,29 @@ function LogoMark() {
   );
 }
 
+/* ── Hamburger toggle (mobile/tablet only, see .sb-hamburger in globals.css) ── */
+function HamburgerButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Ouvrir la navigation"
+      className="sb-hamburger"
+      style={{
+        alignItems: "center", justifyContent: "center",
+        width: 34, height: 34, borderRadius: 9,
+        border: "1px solid var(--border)",
+        background: "var(--bg-card)",
+        color: "var(--text-secondary)",
+        cursor: "pointer", marginRight: "auto",
+      }}
+    >
+      <svg width={16} height={16} viewBox="0 0 16 16" fill="none">
+        <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+}
+
 /* ── Nav item ──────────────────────────────────────────────────── */
 function NavItem({
   href, icon, label, active, badge, disabled,
@@ -181,15 +204,25 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
   const { t, locale, setLocale } = useI18n();
-  const { connected } = useWS();
+  const { connected, locked } = useWS();
   const { theme, toggle: toggleTheme } = useTheme();
   const [sources, setSources] = useState<SourceStatus[]>([]);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [projectCount, setProjectCount] = useState(0);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
-    setCurrentUser(getUser());
+    setMobileNavOpen(false);
+  }, [path]);
+
+  useEffect(() => {
+    const u = getUser();
+    setCurrentUser(u);
+    if (u && u.role !== "superadmin") {
+      if (!u.email_verified) { router.replace("/verify-email"); return; }
+      if (!u.org_id) { router.replace("/create-organisation"); return; }
+    }
     API.get("/api/sources/status").then(r => {
       const data = r.data;
       setSources(data);
@@ -224,6 +257,7 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
     } else if (s.available && currentUser && isCEO(currentUser)) {
       const OAUTH_SOURCES: Record<string, string> = {
         gmail: "/auth/google", outlook: "/auth/outlook/auth-url", teams: "/auth/teams/auth-url",
+        slack: "/auth/slack/auth-url",
       };
       const ep = OAUTH_SOURCES[s.key];
       if (ep) {
@@ -243,7 +277,8 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
     return (
       <div style={{ display: "flex", minHeight: "100vh", fontFamily: "DM Sans, sans-serif", background: "#f5f3ee" }}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap'); *{box-sizing:border-box;margin:0;padding:0;}`}</style>
-        <aside style={{
+        {mobileNavOpen && <div className="sb-backdrop" onClick={() => setMobileNavOpen(false)} />}
+        <aside className={mobileNavOpen ? "sb-aside sb-open" : "sb-aside"} style={{
           width: 230, background: SB.bg, color: SB.textPrimary,
           display: "flex", flexDirection: "column",
           position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 10,
@@ -276,19 +311,20 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
             <NavItem href="/dashboard/admin?tab=users" icon={<IconUser size={14} />}     label="Utilisateurs" />
           </nav>
 
-          <SidebarFooter locale={locale} setLocale={setLocale} connected={connected} version={t.app_version} />
+          <SidebarFooter locale={locale} setLocale={setLocale} connected={connected} locked={locked} version={t.app_version} />
         </aside>
 
-        <main style={{ marginLeft: 230, flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <main className="sb-main" style={{ marginLeft: 230, flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "flex-end",
             padding: "0.75rem 2.5rem", background: "#f5f3ee",
             borderBottom: "1px solid rgba(29,45,68,0.08)",
             position: "sticky", top: 0, zIndex: 9,
           }}>
+            <HamburgerButton onClick={() => setMobileNavOpen(o => !o)} />
             {currentUser && <UserMenu user={currentUser} />}
           </div>
-          <div style={{ padding: "2rem 2.5rem", flex: 1 }}>{children}</div>
+          <div className="sb-main-pad" style={{ padding: "2rem 2.5rem", flex: 1 }}>{children}</div>
         </main>
       </div>
     );
@@ -310,7 +346,8 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
       `}</style>
 
       {/* ── Sidebar ─────────────────────────────────────────────── */}
-      <aside style={{
+      {mobileNavOpen && <div className="sb-backdrop" onClick={() => setMobileNavOpen(false)} />}
+      <aside className={mobileNavOpen ? "sb-aside sb-open" : "sb-aside"} style={{
         width: 240,
         background: SB.bg,
         display: "flex", flexDirection: "column",
@@ -371,6 +408,11 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
             icon={<IconCalendar size={15} />}
             label={locale === "fr" ? "Calendrier" : "Calendar"}
             active={path.startsWith("/dashboard/calendar")}
+            badge={currentUser?.org_plan === "free" ? (
+              <span style={{ fontSize: 10, background: "rgba(147,51,234,0.15)", color: "#9333ea", borderRadius: 8, padding: "1px 7px", fontWeight: 700 }}>
+                🔒 Pro
+              </span>
+            ) : undefined}
           />
 
           <div style={{ height: 1, background: SB.border, margin: "8px 4px" }} />
@@ -498,7 +540,7 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
           {/* Manage sources — CEO only */}
           {currentUser && isCEO(currentUser) && (
             <div style={{ marginTop: 10 }}>
-              <Link href="/onboarding" style={{
+              <Link href="/onboarding?step=choose" style={{
                 display: "flex", alignItems: "center", gap: 9,
                 padding: "7px 12px", borderRadius: 8, textDecoration: "none",
                 color: SB.textMuted, fontSize: 12,
@@ -510,13 +552,26 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
               </Link>
             </div>
           )}
+
+          {/* Settings — CEO only */}
+          {currentUser && isCEO(currentUser) && (
+            <>
+              <div style={{ height: 1, background: SB.border, margin: "8px 4px" }} />
+              <NavItem
+                href="/dashboard/settings"
+                icon={<IconSettings size={15} />}
+                label={locale === "fr" ? "Paramètres" : "Settings"}
+                active={path.startsWith("/dashboard/settings")}
+              />
+            </>
+          )}
         </nav>
 
         <SidebarFooter locale={locale} setLocale={setLocale} connected={connected} version={t.app_version} />
       </aside>
 
       {/* ── Main content ────────────────────────────────────────── */}
-      <main style={{ marginLeft: 240, flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <main className="sb-main" style={{ marginLeft: 240, flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         {/* Topbar */}
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "flex-end",
@@ -526,6 +581,7 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
           position: "sticky", top: 0, zIndex: 9,
           gap: 12, transition: "background 0.25s ease",
         }}>
+          <HamburgerButton onClick={() => setMobileNavOpen(o => !o)} />
           <button
             onClick={toggleTheme}
             title={theme === "dark" ? "Mode clair" : "Mode sombre"}
@@ -544,7 +600,7 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
           {currentUser && <UserMenu user={currentUser} />}
         </div>
 
-        <div style={{ padding: "2rem 2.5rem", flex: 1, background: "var(--bg-page)", transition: "background 0.25s ease" }}>
+        <div className="sb-main-pad" style={{ padding: "2rem 2.5rem", flex: 1, background: "var(--bg-page)", transition: "background 0.25s ease" }}>
           {children}
         </div>
       </main>
@@ -556,9 +612,9 @@ function DashboardInner({ children }: { children: React.ReactNode }) {
 }
 
 /* ── Sidebar footer ─────────────────────────────────────────────── */
-function SidebarFooter({ locale, setLocale, connected, version }: {
+function SidebarFooter({ locale, setLocale, connected, locked, version }: {
   locale: string; setLocale: (l: "fr" | "en") => void;
-  connected: boolean; version: string;
+  connected: boolean; locked?: boolean; version: string;
 }) {
   return (
     <div style={{ padding: "0.875rem 1.125rem", borderTop: `1px solid ${SB.border}`, flexShrink: 0 }}>
@@ -581,20 +637,16 @@ function SidebarFooter({ locale, setLocale, connected, version }: {
         ))}
       </div>
 
-      {/* Connection status */}
-      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+      {/* Statut WebSocket temps réel */}
+      <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "2px 2px" }}>
         <span style={{
-          width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
-          background: connected ? "#10b981" : "#f87171",
-          animation: connected ? "glowPulse 2.5s ease infinite" : "none",
+          width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+          background: locked ? SB.textMuted : connected ? "#22c55e" : "#ef4444",
+          boxShadow: connected && !locked ? "0 0 0 3px rgba(34,197,94,0.18)" : "none",
         }} />
-        <span style={{ fontSize: 11, color: connected ? "#34d399" : "#f87171" }}>
-          {connected ? (locale === "fr" ? "Temps réel actif" : "Live connected") : (locale === "fr" ? "Reconnexion..." : "Reconnecting...")}
+        <span style={{ fontSize: 11, color: SB.textMuted }}>
+          {locked ? "Temps réel non inclus" : connected ? "Temps réel connecté" : "Reconnexion…"}
         </span>
-      </div>
-
-      <div style={{ fontSize: 10, color: SB.textMuted, marginTop: 6, letterSpacing: "0.02em" }}>
-        {version}
       </div>
     </div>
   );

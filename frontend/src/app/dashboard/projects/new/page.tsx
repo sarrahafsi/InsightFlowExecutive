@@ -168,7 +168,7 @@ export default function NewProjectPage() {
 
             {/* Add member form */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div className="rf-grid-2" style={{ gap: 10 }}>
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: "#0d1321", display: "block", marginBottom: 6 }}>{t.proj_member_name_ph}</label>
                   <input value={mName} onChange={e => setMName(e.target.value)} placeholder="Sarah Hafsi"

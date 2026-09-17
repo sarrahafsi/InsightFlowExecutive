@@ -15,6 +15,7 @@ from functools import lru_cache
 from typing import Optional
 
 from .base import BaseProcessor, EnrichedItem
+from ._model_lock import MODEL_LOAD_LOCK
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +36,14 @@ BUSINESS_TOPICS = [
 
 @lru_cache(maxsize=1)
 def _load_pipeline():
-    from transformers import pipeline
-    logger.info("[NLP/Topic] Loading model: %s", TOPIC_MODEL)
-    return pipeline(
-        "zero-shot-classification",
-        model=TOPIC_MODEL,
-    )
+    with MODEL_LOAD_LOCK:
+        from transformers import pipeline
+        logger.info("[NLP/Topic] Loading model: %s", TOPIC_MODEL)
+        return pipeline(
+            "zero-shot-classification",
+            model=TOPIC_MODEL,
+            model_kwargs={"low_cpu_mem_usage": False},
+        )
 
 
 class TopicProcessor(BaseProcessor):

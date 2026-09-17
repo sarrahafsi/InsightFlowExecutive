@@ -44,6 +44,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     from core.database import SessionLocal
     from core.models import MessageRaw
 
+    # Injecté par le backend juste avant l'appel — cf. gmail_server.py.
+    org_id = arguments.get("_org_id")
+    if not org_id:
+        return [TextContent(type="text", text=json.dumps({"error": "org_id manquant", "tickets": []}))]
+
     db = SessionLocal()
     try:
         if name == "get_jira_tickets":
@@ -54,6 +59,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             q = db.query(MessageRaw).filter(
                 MessageRaw.source == "jira",
+                MessageRaw.org_id == org_id,
                 MessageRaw.timestamp >= since,
             )
             if status == "blocked":

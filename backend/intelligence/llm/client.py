@@ -3,8 +3,9 @@ LLM Client — InsightFlow Executive
 =====================================
 Client unifié avec vrai protocole MCP (SDK officiel Anthropic).
 
-Optimisation : les MCP servers sont démarrés une seule fois au premier appel
-et les tool schemas sont mis en cache — pas de subprocess par requête.
+Optimisation : chaque MCP server est démarré une seule fois (session stdio
+persistante gardée ouverte pour toute la durée de vie du backend, cf.
+start_mcp_sessions/close_mcp_sessions) — pas de sous-processus par tool call.
 
 Modes :
   LLM_PROVIDER=ollama  → Ollama local, gratuit, sans MCP tools
@@ -13,6 +14,8 @@ Modes :
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -40,11 +43,81 @@ MCP_SERVERS = {
 _cached_tools: list[dict] | None = None
 _tool_to_server: dict[str, str] = {}
 
+# Sessions MCP persistantes : un sous-processus par serveur, réutilisé pour
+# tous les appels (au lieu d'en relancer un par tool call — c'était le
+# principal goulot d'étranglement de "Ask Anything").
+_sessions: dict[str, Any] = {}
+_session_locks: dict[str, asyncio.Lock] = {}
+_exit_stack: contextlib.AsyncExitStack | None = None
+
 
 def reset_tool_cache() -> None:
     global _cached_tools, _tool_to_server
     _cached_tools   = None
     _tool_to_server = {}
+
+
+def _get_lock(server_name: str) -> asyncio.Lock:
+    if server_name not in _session_locks:
+        _session_locks[server_name] = asyncio.Lock()
+    return _session_locks[server_name]
+
+
+async def _get_session(server_name: str):
+    """Retourne la session MCP persistante pour ce serveur (la crée si besoin)."""
+    global _exit_stack
+
+    if server_name in _sessions:
+        return _sessions[server_name]
+
+    server_path = MCP_SERVERS.get(server_name)
+    if not server_path or not server_path.exists():
+        return None
+
+    async with _get_lock(server_name):
+        if server_name in _sessions:  # créée entre-temps par une autre requête
+            return _sessions[server_name]
+
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        if _exit_stack is None:
+            _exit_stack = contextlib.AsyncExitStack()
+
+        try:
+            env = {**os.environ, "ASK_INTERNAL_SECRET": settings.secret_key}
+            params = StdioServerParameters(command=PYTHON_EXE, args=[str(server_path)], env=env)
+            read, write = await _exit_stack.enter_async_context(stdio_client(params))
+            session = await _exit_stack.enter_async_context(ClientSession(read, write))
+            await asyncio.wait_for(session.initialize(), timeout=10.0)
+            _sessions[server_name] = session
+            logger.info("[MCP] Session démarrée pour %s", server_name)
+            return session
+        except BaseException as e:
+            logger.error("[MCP] Échec démarrage serveur %s: %s", server_name, e)
+            return None
+
+
+def _drop_session(server_name: str) -> None:
+    """Invalide une session cassée — sera recréée au prochain appel."""
+    _sessions.pop(server_name, None)
+
+
+async def start_mcp_sessions() -> None:
+    """Démarre tous les serveurs MCP une fois, au boot du backend."""
+    for server_name in MCP_SERVERS:
+        await _get_session(server_name)
+    await _get_tools()  # préchauffe aussi le cache des tool schemas
+    logger.info("[MCP] %d serveur(s) MCP prêt(s), %d tool(s) disponibles", len(_sessions), len(_cached_tools or []))
+
+
+async def close_mcp_sessions() -> None:
+    """À appeler à l'arrêt du backend pour fermer proprement les sous-processus MCP."""
+    global _exit_stack
+    if _exit_stack is not None:
+        await _exit_stack.aclose()
+        _exit_stack = None
+    _sessions.clear()
 
 
 # ── Public interface ──────────────────────────────────────────────────────────
@@ -57,10 +130,12 @@ async def complete(
     temperature: float = 0.3,
     max_tokens: int = 600,
     provider: str | None = None,
+    org_id: str | None = None,
+    since_date: str | None = None,
 ) -> str:
     p = (provider or settings.llm_provider).lower()
     if p == "azure":
-        return await _complete_azure_mcp(system, user, use_tools, temperature, max_tokens)
+        return await _complete_azure_mcp(system, user, use_tools, temperature, max_tokens, org_id, since_date)
     if p in ("openai", "gpt"):
         return await _complete_openai(system, user, temperature, max_tokens)
     return await _complete_ollama(system, user, temperature, max_tokens)
@@ -96,35 +171,21 @@ def get_provider_info() -> dict:
 # ── Tool discovery (cached) ───────────────────────────────────────────────────
 
 async def _get_tools() -> tuple[list[dict], dict[str, str]]:
-    """Discover tools from MCP servers once and cache them."""
+    """Discover tools from the persistent MCP sessions and cache them."""
     global _cached_tools, _tool_to_server
 
     if _cached_tools is not None:
         return _cached_tools, _tool_to_server
 
-    import asyncio
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.stdio import stdio_client
-
     all_tools: list[dict] = []
     tool_map: dict[str, str] = {}
 
-    for server_name, server_path in MCP_SERVERS.items():
-        if not server_path.exists():
+    for server_name in MCP_SERVERS:
+        session = await _get_session(server_name)
+        if session is None:
             continue
         try:
-            params = StdioServerParameters(
-                command=PYTHON_EXE,
-                args=[str(server_path)],
-                env={**os.environ},
-            )
-            async def _discover(params=params, server_name=server_name):
-                async with stdio_client(params) as (read, write):
-                    async with ClientSession(read, write) as session:
-                        await session.initialize()
-                        return await session.list_tools()
-
-            tools_response = await asyncio.wait_for(_discover(), timeout=10.0)
+            tools_response = await asyncio.wait_for(session.list_tools(), timeout=10.0)
             for tool in tools_response.tools:
                 all_tools.append({
                     "type": "function",
@@ -137,11 +198,8 @@ async def _get_tools() -> tuple[list[dict], dict[str, str]]:
                 tool_map[tool.name] = server_name
                 logger.info("[MCP] Tool cached: %s (from %s)", tool.name, server_name)
         except BaseException as e:
-            if isinstance(e, BaseExceptionGroup):
-                for sub in e.exceptions:
-                    logger.error("[MCP] Failed to load tools from %s: %s", server_name, sub)
-            else:
-                logger.error("[MCP] Failed to load tools from %s: %s", server_name, e)
+            logger.error("[MCP] Failed to list tools from %s: %s", server_name, e)
+            _drop_session(server_name)
 
     _cached_tools   = all_tools
     _tool_to_server = tool_map
@@ -149,42 +207,48 @@ async def _get_tools() -> tuple[list[dict], dict[str, str]]:
     return _cached_tools, _tool_to_server
 
 
-async def _call_mcp_tool(server_name: str, tool_name: str, arguments: dict) -> str:
-    """Execute a tool on its MCP server via JSON-RPC stdio."""
-    import asyncio
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.stdio import stdio_client
+async def _call_mcp_tool(
+    server_name: str, tool_name: str, arguments: dict,
+    org_id: str | None = None, since_date: str | None = None,
+) -> str:
+    """Execute a tool on its (persistent) MCP session.
 
-    server_path = MCP_SERVERS.get(server_name)
-    if not server_path or not server_path.exists():
-        return json.dumps({"error": f"MCP server '{server_name}' not found"})
+    org_id/since_date sont injectés directement dans les arguments juste avant
+    l'appel (jamais laissés au LLM à fournir) : chaque serveur MCP DOIT filtrer
+    par org_id lui-même — sinon un CEO voit les données de toutes les
+    organisations (cf. incident 03/09/2026, aucun des 4 serveurs ne filtrait
+    par org). Passés en argument plutôt qu'en variable d'environnement du
+    sous-processus, car la session est maintenant partagée entre requêtes et
+    organisations — un env var figé au démarrage du process ne conviendrait
+    plus."""
+    call_args = {**arguments, "_org_id": org_id, "_since_date": since_date}
 
-    async def _run():
-        params = StdioServerParameters(
-            command=PYTHON_EXE,
-            args=[str(server_path)],
-            env={**os.environ},
-        )
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.call_tool(tool_name, arguments)
-                if result.content:
-                    return result.content[0].text
-                return json.dumps({"result": "ok"})
+    async def _attempt() -> str | None:
+        session = await _get_session(server_name)
+        if session is None:
+            return None
+        result = await asyncio.wait_for(session.call_tool(tool_name, call_args), timeout=15.0)
+        if result.content:
+            return result.content[0].text
+        return json.dumps({"result": "ok"})
 
     try:
-        return await asyncio.wait_for(_run(), timeout=15.0)
+        result = await _attempt()
+        if result is not None:
+            return result
+        return json.dumps({"error": f"MCP server '{server_name}' unavailable"})
     except asyncio.TimeoutError:
         logger.warning("[MCP] Timeout calling %s.%s", server_name, tool_name)
         return json.dumps({"error": f"timeout calling {tool_name}"})
     except BaseException as e:
-        if isinstance(e, BaseExceptionGroup):
-            for sub in e.exceptions:
-                logger.error("[MCP] Tool call failed %s.%s: %s", server_name, tool_name, sub)
-        else:
-            logger.error("[MCP] Tool call failed %s.%s: %s", server_name, tool_name, e)
-        return json.dumps({"error": "mcp tool error"})
+        logger.error("[MCP] Tool call failed %s.%s: %s — reconnecting", server_name, tool_name, e)
+        _drop_session(server_name)
+        try:
+            result = await _attempt()
+            return result if result is not None else json.dumps({"error": "mcp tool error"})
+        except BaseException as e2:
+            logger.error("[MCP] Retry failed %s.%s: %s", server_name, tool_name, e2)
+            return json.dumps({"error": "mcp tool error"})
 
 
 # ── Azure GPT-4o + MCP ────────────────────────────────────────────────────────
@@ -195,6 +259,8 @@ async def _complete_azure_mcp(
     use_tools: bool,
     temperature: float,
     max_tokens: int,
+    org_id: str | None = None,
+    since_date: str | None = None,
 ) -> str:
     try:
         from openai import AsyncAzureOpenAI
@@ -284,7 +350,7 @@ async def _complete_azure_mcp(
             except json.JSONDecodeError:
                 tool_args = {}
             logger.info("[MCP] GPT-4o calls: %s(%s)", tool_name, tool_args)
-            result = await _call_mcp_tool(server_name, tool_name, tool_args)
+            result = await _call_mcp_tool(server_name, tool_name, tool_args, org_id, since_date)
             return tc.id, result
 
         results = await asyncio.gather(*[run_tool(tc) for tc in msg.tool_calls])

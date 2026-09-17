@@ -9,6 +9,7 @@ Falls back to keyword heuristics for non-enriched items.
 
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from integrations.connectors.schemas import SourceType
 from core.store import ItemStore
@@ -18,15 +19,26 @@ from data.analytics.sentiment import has_escalation, extract_keywords
 # Helpers
 # ─────────────────────────────────────────────────────────
 
+# Fuseau de référence pour "aujourd'hui". Sans ça, minuit UTC ne correspond
+# pas à minuit local : un message envoyé entre 00h00 et 00h59 heure locale
+# était compté comme "hier" côté serveur (23h-23h59 UTC la veille), donc
+# exclu du filtre "Aujourd'hui" alors qu'il vient bien d'être reçu.
+# Europe/Paris gère le passage heure d'été/hiver automatiquement via
+# zoneinfo — contrairement à un décalage fixe, pas besoin d'ajuster ici
+# aux changements d'heure.
+_LOCAL_TZ = ZoneInfo("Europe/Paris")
+
 def _since(since_days: int) -> datetime:
     """
-    Retourne le début de la période en UTC.
-    since_days=1  → minuit aujourd'hui (pas les 24h glissantes)
+    Retourne le début de la période, en UTC naïf (cohérent avec les
+    timestamps stockés), mais calculé depuis minuit LOCAL (Africa/Tunis).
+    since_days=1  → minuit aujourd'hui, heure locale (pas les 24h glissantes)
     since_days=7  → minuit il y a 6 jours (= 7 jours complets incluant aujourd'hui)
     since_days=30 → minuit il y a 29 jours, etc.
     """
-    today_midnight = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    return today_midnight - timedelta(days=since_days - 1)
+    midnight_local = datetime.now(_LOCAL_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    midnight_utc = midnight_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    return midnight_utc - timedelta(days=since_days - 1)
 
 # ─────────────────────────────────────────────────────────
 # Constants
@@ -233,7 +245,7 @@ def compute_intelligence(items: list, since_days: int = 30) -> dict:
                 "id": i.id,
                 "title": (i.title or "")[:80],
                 "author": i.author or "",
-                "timestamp": i.timestamp.isoformat(),
+                "timestamp": i.timestamp.isoformat() + "Z",
                 "source": i.source,
                 "business_label": _get_business_label(i),
                 "business_reason": (i.metadata or {}).get("business_reason", ""),
@@ -267,22 +279,27 @@ def compute_overview(store: ItemStore, since_days: int = 30) -> dict:
     now = datetime.utcnow()
     since = _since(since_days)
     items = store.all(since=since, limit=10_000)
+    # Compteurs "combien de messages" = messages reçus uniquement — un email
+    # que le compte connecté s'est envoyé à lui-même ne doit pas gonfler le
+    # total. `items` (avec SENT) reste utilisé plus bas pour compute_intelligence(),
+    # qui a besoin des messages envoyés pour calculer les temps de réponse.
+    received = [i for i in items if "SENT" not in (i.tags or [])]
     week_ago = now - timedelta(days=7)
     two_weeks_ago = now - timedelta(days=14)
 
-    this_week = [i for i in items if i.timestamp >= week_ago]
-    last_week = [i for i in items if two_weeks_ago <= i.timestamp < week_ago]
-    total = max(len(items), 1)
+    this_week = [i for i in received if i.timestamp >= week_ago]
+    last_week = [i for i in received if two_weeks_ago <= i.timestamp < week_ago]
+    total = max(len(received), 1)
 
     by_source: dict = defaultdict(int)
     by_type: dict = defaultdict(int)
-    for item in items:
+    for item in received:
         by_source[item.source] += 1
         by_type[item.type] += 1
 
     # Sentiment from NLP model (with fallback)
     sentiment_counts: Counter = Counter()
-    for i in items:
+    for i in received:
         sentiment_counts[_get_sentiment(i)] += 1
 
     sentiment = {
@@ -297,14 +314,14 @@ def compute_overview(store: ItemStore, since_days: int = 30) -> dict:
     for d in range(timeline_days):
         day = (now - timedelta(days=timeline_days - 1 - d)).strftime("%Y-%m-%d")
         timeline[day] = 0
-    for item in items:
+    for item in received:
         day = item.timestamp.strftime("%Y-%m-%d")
         if day in timeline:
             timeline[day] += 1
     activity_timeline = [{"date": d, "count": c} for d, c in timeline.items()]
 
     # Risk index based on business labels
-    risk_items_count = sum(1 for i in items if _get_business_label(i) in RISK_LABELS)
+    risk_items_count = sum(1 for i in received if _get_business_label(i) in RISK_LABELS)
     neg_rate = sentiment_counts["NEGATIVE"] / total
     risk_rate = risk_items_count / total
     risk_index = min(100, round((neg_rate * 0.3 + risk_rate * 0.7) * 100))
@@ -315,13 +332,14 @@ def compute_overview(store: ItemStore, since_days: int = 30) -> dict:
     delta_pct = round((tw - lw) / lw * 100, 1)
 
     # Escalation (legacy keyword-based)
-    critical_alerts = sum(1 for i in items if has_escalation(f"{i.title} {i.content}"))
+    critical_alerts = sum(1 for i in received if has_escalation(f"{i.title} {i.content}"))
 
-    # Intelligence layer
+    # Intelligence layer — garde `items` (avec SENT) : nécessaire pour les
+    # temps de réponse dans compute_intelligence().
     intelligence = compute_intelligence(items, since_days)
 
     return {
-        "total_items": len(items),
+        "total_items": len(received),
         "connected_sources": len(by_source),
         "total_sources": 5,
         "critical_alerts": critical_alerts,
@@ -403,7 +421,7 @@ def compute_gmail(store: ItemStore, since_days: int = 30) -> dict:
             "id":               item.id,
             "title":            item.title,
             "author":           item.author,
-            "timestamp":        item.timestamp.isoformat(),
+            "timestamp":        item.timestamp.isoformat() + "Z",
             "source":           item.source if isinstance(item.source, str) else item.source.value,
             "snippet":          meta.get("snippet", ""),
             "content":          item.content or "",
@@ -507,16 +525,16 @@ def compute_gmail(store: ItemStore, since_days: int = 30) -> dict:
         },
         "escalation": {
             "count": len(escalation_items),
-            "items": [{"title": i.title, "timestamp": i.timestamp.isoformat(), "author": i.author}
+            "items": [{"title": i.title, "timestamp": i.timestamp.isoformat() + "Z", "author": i.author}
                       for i in escalation_items[:5]],
         },
         "no_reply_48h": {
             "count": len(no_reply_48h),
-            "items": [{"title": i.title, "timestamp": i.timestamp.isoformat()} for i in no_reply_48h[:5]],
+            "items": [{"title": i.title, "timestamp": i.timestamp.isoformat() + "Z"} for i in no_reply_48h[:5]],
         },
         "unanswered_critical": {
             "count": len(unanswered_critical),
-            "items": [{"title": i.title, "timestamp": i.timestamp.isoformat()} for i in unanswered_critical[:5]],
+            "items": [{"title": i.title, "timestamp": i.timestamp.isoformat() + "Z"} for i in unanswered_critical[:5]],
         },
         "by_day":              by_day,
         "by_hour":             by_hour,
@@ -819,7 +837,7 @@ def compute_outlook(store: ItemStore, since_days: int = 30) -> dict:
     attachment_count = sum(1 for i in items if (i.metadata or {}).get("has_attachments", False))
 
     escalation_items = [
-        {"title": i.title, "author": i.author, "timestamp": i.timestamp.isoformat()}
+        {"title": i.title, "author": i.author, "timestamp": i.timestamp.isoformat() + "Z"}
         for i in items
         if has_escalation(f"{i.title} {i.content}")
     ][:10]
@@ -841,7 +859,7 @@ def compute_outlook(store: ItemStore, since_days: int = 30) -> dict:
 def compute_attribution(store: ItemStore, since_days: int = 7) -> list:
     """Per-author breakdown of alert business labels."""
     since = _since(since_days)
-    items = store.all(since=since, limit=10_000)
+    items = [i for i in store.all(since=since, limit=10_000) if "SENT" not in (i.tags or [])]
 
     author_counts: dict = defaultdict(lambda: defaultdict(int))
     author_sources: dict = defaultdict(set)
@@ -873,7 +891,7 @@ def compute_heatmap(store: ItemStore, since_days: int = 30) -> dict:
     """Hour x Weekday matrix of tense/critical messages."""
     DAY_NAMES = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
     since = _since(since_days)
-    items = store.all(since=since, limit=10_000)
+    items = [i for i in store.all(since=since, limit=10_000) if "SENT" not in (i.tags or [])]
 
     matrix = [[0] * 24 for _ in range(7)]
     total_matrix = [[0] * 24 for _ in range(7)]
@@ -903,7 +921,7 @@ def compute_heatmap(store: ItemStore, since_days: int = 30) -> dict:
 def compute_priority_messages(store: ItemStore, since_days: int = 7, limit: int = 3) -> list:
     """Top N most critical messages for the CEO to read now."""
     since = _since(since_days)
-    items = store.all(since=since, limit=10_000)
+    items = [i for i in store.all(since=since, limit=10_000) if "SENT" not in (i.tags or [])]
 
     def _score(item) -> int:
         label   = _get_business_label(item)
@@ -932,9 +950,204 @@ def compute_priority_messages(store: ItemStore, since_days: int = 7, limit: int 
             "business_label":   _get_business_label(i),
             "business_reason":  (i.metadata or {}).get("business_reason", ""),
             "emotion_label":    (i.metadata or {}).get("emotion_label", ""),
-            "timestamp":        i.timestamp.isoformat(),
+            "timestamp":        i.timestamp.isoformat() + "Z",
             "url":              i.url or "",
             "priority_score":   _score(i),
         }
         for i in candidates[:limit]
     ]
+
+
+# ─────────────────────────────────────────────────────────
+# Daily Brief — "3 choses qui nécessitent votre attention aujourd'hui"
+# ─────────────────────────────────────────────────────────
+# Toutes les valeurs (compteurs, heures, %) sont calculées ici de façon
+# déterministe à partir des données réelles. Le LLM (voir brief.py) ne sert
+# qu'à reformuler ces faits en prose — jamais à les inventer. Si le LLM échoue
+# ou renvoie n'importe quoi, ces champs restent le filet de sécurité affiché.
+
+def _hours_since(ts: datetime, now: datetime) -> float:
+    return max((now - ts).total_seconds() / 3600, 0.0)
+
+
+def _match_project_name(text: str, project_names: list[str]) -> str | None:
+    low = (text or "").lower()
+    for name in project_names:
+        if name and len(name) >= 3 and name.lower() in low:
+            return name
+    return None
+
+
+def _source_item(i) -> dict:
+    """Item de preuve exposé au frontend — inclut de quoi cibler l'action
+    "Envoyer un message" : email (Gmail) ou canal/DM (Slack)."""
+    src = i.source if isinstance(i.source, str) else i.source.value
+    meta = i.metadata or {}
+    return {
+        "id": i.id,
+        "source": src,
+        "title": i.title or "",
+        "url": i.url or "",
+        "author": i.author or "",
+        "to_email":    meta.get("from_email") if src == "gmail" else "",
+        "thread_id":   meta.get("thread_id") if src == "gmail" else None,
+        "channel_id":  meta.get("channel_id") if src == "slack" else None,
+        "channel_name": meta.get("channel_name") if src == "slack" else None,
+        "user_id":     meta.get("user_id") if src == "slack" else None,
+        "thread_ts":   meta.get("thread_ts") if src == "slack" else None,
+    }
+
+
+def _daily_risk_cluster(items: list, project_names: list[str], now: datetime) -> dict | None:
+    """Le signal de risque le plus insistant : rattaché à un projet nommé si on
+    peut le déduire du contenu, sinon regroupé par source."""
+    risk_items = [i for i in items if "SENT" not in (i.tags or []) and _get_business_label(i) in RISK_LABELS]
+    if not risk_items:
+        return None
+
+    groups: dict[str, list] = defaultdict(list)
+    for i in risk_items:
+        proj = _match_project_name(f"{i.title} {i.content}", project_names)
+        groups[proj or f"__source__{i.source if isinstance(i.source, str) else i.source.value}"].append(i)
+
+    best_key, best_items = max(
+        groups.items(),
+        key=lambda kv: (len(kv[1]), max(SEVERITY.get(_get_business_label(x), 0) for x in kv[1])),
+    )
+    is_project = not best_key.startswith("__source__")
+
+    by_source = Counter((i.source if isinstance(i.source, str) else i.source.value) for i in best_items)
+    evidence = [f"{count} signal(aux) sur {src.capitalize()}" for src, count in by_source.most_common()]
+    last_update = max(i.timestamp for i in best_items)
+    days_silent = (now - last_update).days
+    if days_silent >= 1:
+        evidence.append(f"aucune mise à jour depuis {days_silent} jour{'s' if days_silent > 1 else ''}")
+
+    severity = max(SEVERITY.get(_get_business_label(x), 0) for x in best_items)
+    title = (
+        f"Le projet {best_key} présente un risque élevé."
+        if is_project else
+        "Plusieurs signaux de risque détectés dans les communications."
+    )
+
+    return {
+        "id": f"risk:{best_key}",
+        "type": "risk_cluster",
+        "title": title,
+        "evidence": evidence,
+        "impact_estimate": None,
+        "severity_score": severity * 10 + len(best_items),
+        "source_items": [_source_item(i) for i in sorted(best_items, key=lambda x: x.timestamp, reverse=True)[:5]],
+    }
+
+
+def _daily_sentiment_decline(items: list, now: datetime) -> dict | None:
+    """Dégradation du sentiment cette semaine vs la semaine précédente."""
+    this_period  = [i for i in items if "SENT" not in (i.tags or []) and i.timestamp >= now - timedelta(days=7)]
+    prior_period = [i for i in items if "SENT" not in (i.tags or [])
+                     and now - timedelta(days=14) <= i.timestamp < now - timedelta(days=7)]
+    if len(this_period) < 3 or len(prior_period) < 3:
+        return None
+
+    def _neg_rate(subset):
+        return sum(1 for i in subset if _get_sentiment(i) == "NEGATIVE") / len(subset)
+
+    rate_now, rate_prev = _neg_rate(this_period), _neg_rate(prior_period)
+    delta = rate_now - rate_prev
+    if delta < 0.10:
+        return None
+
+    by_source = Counter(
+        (i.source if isinstance(i.source, str) else i.source.value)
+        for i in this_period if _get_sentiment(i) == "NEGATIVE"
+    )
+    top_source = by_source.most_common(1)[0][0] if by_source else None
+    where = f"sur {top_source.capitalize()}" if top_source else "dans les communications"
+
+    return {
+        "id": "sentiment_decline",
+        "type": "sentiment_decline",
+        "title": f"Le sentiment {where} se dégrade depuis 2 semaines.",
+        "evidence": [
+            f"{round(rate_prev * 100)}% de messages négatifs il y a 2 semaines → {round(rate_now * 100)}% cette semaine",
+            f"{len(this_period)} messages analysés sur la période récente",
+        ],
+        "impact_estimate": f"+{round(delta * 100)} points de messages négatifs en 2 semaines",
+        "severity_score": delta * 100,
+        "source_items": [],
+    }
+
+
+def _daily_stale_critical(items: list, now: datetime) -> dict | None:
+    """Le message urgent/bloquant le plus ancien resté sans réponse."""
+    stale: list[tuple] = []
+    for i in items:
+        if "SENT" in (i.tags or []):
+            continue
+        label = _get_business_label(i)
+        if label not in ("Urgent", "Blocked") and not has_escalation(f"{i.title} {i.content}"):
+            continue
+        thread_id = (i.metadata or {}).get("thread_id")
+        replied = bool(thread_id) and any(
+            (j.metadata or {}).get("thread_id") == thread_id
+            and "SENT" in (j.tags or []) and j.timestamp > i.timestamp
+            for j in items
+        )
+        if replied:
+            continue
+        hours = _hours_since(i.timestamp, now)
+        if hours >= 12:
+            stale.append((i, hours))
+
+    if not stale:
+        return None
+    stale.sort(key=lambda x: -x[1])
+    item, hours = stale[0]
+    src = item.source if isinstance(item.source, str) else item.source.value
+
+    return {
+        "id": f"stale:{item.id}",
+        "type": "stale_critical",
+        "title": f"{item.author or 'Un contact'} attend une réponse depuis {int(hours)} heures.",
+        "evidence": [
+            f"Message {'urgent' if _get_business_label(item) == 'Urgent' else 'critique'} sur {src.capitalize()}",
+            " ".join((item.content or item.title or "").split())[:120],
+        ],
+        "impact_estimate": f"En attente depuis {int(hours)} heures",
+        "severity_score": hours,
+        "source_items": [_source_item(item)],
+    }
+
+
+def compute_daily_insights(store: ItemStore, org_id: str | None = None, since_days: int = 14, limit: int = 3) -> list[dict]:
+    """
+    Candidats déterministes pour le Daily Brief du CEO — jusqu'à `limit` insights
+    parmi 3 types de signaux indépendants (cluster de risque, dégradation de
+    sentiment, message critique resté sans réponse). Retourne moins de `limit`
+    si les données ne justifient pas plus de signaux — jamais de contenu inventé.
+    """
+    since = _since(since_days)
+    items = [i for i in store.all(since=since, limit=10_000) if "SENT" not in (i.tags or [])]
+    now = datetime.utcnow()
+
+    project_names: list[str] = []
+    if org_id:
+        try:
+            from core.database import SessionLocal
+            from core.models import Project
+            db = SessionLocal()
+            try:
+                project_names = [p.name for p in db.query(Project.name).filter(Project.org_id == org_id).all()]
+            finally:
+                db.close()
+        except Exception:
+            project_names = []
+
+    candidates = [
+        _daily_risk_cluster(items, project_names, now),
+        _daily_sentiment_decline(items, now),
+        _daily_stale_critical(items, now),
+    ]
+    candidates = [c for c in candidates if c]
+    candidates.sort(key=lambda c: -c["severity_score"])
+    return candidates[:limit]

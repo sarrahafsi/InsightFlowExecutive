@@ -14,6 +14,13 @@ const SOURCE_ICON: Record<string, string> = {
   gmail: "✉️", jira: "📋", slack: "💬", outlook: "📨", teams: "🟣", clickup: "⬆️",
 };
 
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut) + "…";
+}
+
 function timeAgo(iso: string): string {
   const h = Math.floor((Date.now() - new Date(iso).getTime()) / 3600000);
   if (h < 1) return "< 1h";
@@ -75,7 +82,7 @@ export default function PriorityMessages({ sinceDays = 7 }: { sinceDays?: number
               </div>
               {msg.business_reason && (
                 <div style={{ fontSize: 11, color: "#748cab", marginTop: 4, fontStyle: "italic" }}>
-                  {msg.business_reason.slice(0, 90)}
+                  {truncate(msg.business_reason, 90)}
                 </div>
               )}
             </div>

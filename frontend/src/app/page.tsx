@@ -156,7 +156,7 @@ function DashboardPreview() {
             {["📧", "🔔"].map((ic, i) => <div key={i} style={{ width: 34, height: 34, borderRadius: 10, background: "white", border: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>{ic}</div>)}
           </div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
+        <div className="rf-grid-4" style={{ gap: 10, marginBottom: 14 }}>
           {kpis.map((k) => (
             <div key={k.label} style={{ background: "white", borderRadius: 14, padding: "12px", border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
               <div style={{ fontSize: 18, marginBottom: 4 }}>{k.icon}</div>
@@ -165,7 +165,7 @@ function DashboardPreview() {
             </div>
           ))}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 10, marginBottom: 14 }}>
+        <div className="rf-grid-32" style={{ gap: 10, marginBottom: 14 }}>
           <div style={{ background: "white", borderRadius: 14, padding: "12px", border: "1px solid rgba(0,0,0,0.06)" }}>
             <div style={{ fontSize: 11, color: "#94A3B8", fontWeight: 600, marginBottom: 10 }}>Activité 7 jours</div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 50 }}>
@@ -321,13 +321,13 @@ export default function LandingPage() {
             Créer mon espace gratuitement
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </Link>
-          <Link href="/login" className="btn-secondary" style={{ fontSize: 15, padding: "15px 28px" }}>
+          <Link href="/request-demo" className="btn-secondary" style={{ fontSize: 15, padding: "15px 28px" }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="#6366F1" strokeWidth="1.5"/><path d="M6.5 5.5l4 2.5-4 2.5V5.5z" fill="#6366F1"/></svg>
-            Voir la démo
+            Demander une démo
           </Link>
         </div>
         <div style={{ display: "flex", gap: 24, marginTop: "1.5rem", flexWrap: "wrap", justifyContent: "center", animation: "fadeUp 0.6s 0.65s both" }}>
-          {["✓ Sans carte bancaire", "✓ Démarrage en 3 min", "✓ 100% sécurisé RGPD"].map((b) => (
+          {["✓ Sans carte bancaire", "✓ Démarrage en 3 min", "✓ Identifiants chiffrés"].map((b) => (
             <span key={b} style={{ fontSize: 13, color: "#94A3B8", fontWeight: 500 }}>{b}</span>
           ))}
         </div>
@@ -386,7 +386,7 @@ export default function LandingPage() {
             <FeatureCard icon="💬" title="Analyse de sentiment XLM-RoBERTa" desc="Modèle multilingue FR+EN détecte les signaux émotionnels dans toutes vos communications." gradient="linear-gradient(135deg,#8B5CF6,#EC4899)" delay={200} />
             <FeatureCard icon="❤️" title="Score OHS organisationnel" desc="Santé des équipes calculée en continu : burnout, surcharge, satisfaction — visible en un coup d'œil." gradient="linear-gradient(135deg,#10B981,#06B6D4)" delay={300} />
             <FeatureCard icon="📝" title="Monday Brief automatisé" desc="Rapport exécutif généré chaque lundi : 3 priorités, 3 décisions à prendre, contexte complet." gradient="linear-gradient(135deg,#EC4899,#F59E0B)" delay={400} />
-            <FeatureCard icon="🔐" title="Sécurité & conformité RGPD" desc="Chiffrement end-to-end, OAuth 2.0, données hébergées en Europe. Aucune donnée partagée." gradient="linear-gradient(135deg,#06B6D4,#6366F1)" delay={500} />
+            <FeatureCard icon="🔐" title="Sécurité & confidentialité" desc="Identifiants OAuth chiffrés au repos, isolation stricte des données par organisation, consentement explicite avant tout partage pour l'apprentissage IA." gradient="linear-gradient(135deg,#06B6D4,#6366F1)" delay={500} />
           </div>
         </div>
       </section>
@@ -394,7 +394,7 @@ export default function LandingPage() {
       {/* How it works */}
       <section style={{ padding: "5rem 2rem", position: "relative", zIndex: 1 }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5rem", alignItems: "center" }}>
+          <div className="rf-grid-2" style={{ gap: "5rem", alignItems: "center" }}>
             <div>
               <div style={{ fontSize: 12, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6366F1", fontWeight: 700, marginBottom: 12 }}>Mise en route</div>
               <h2 style={{ fontSize: "clamp(1.8rem,3.5vw,2.6rem)", fontWeight: 800, letterSpacing: "-0.02em", marginBottom: "3rem", lineHeight: 1.25 }}>Opérationnel en <span className="gradient-text">moins de 5 minutes</span></h2>
@@ -476,8 +476,13 @@ export default function LandingPage() {
           <span style={{ fontSize: 14, color: "#64748B", fontWeight: 500 }}>InsightFlow Executive © 2026</span>
         </div>
         <div style={{ display: "flex", gap: 24 }}>
-          {["Connexion", "Inscription", "Contact", "Confidentialité"].map((l) => (
-            <Link key={l} href="/login" style={{ fontSize: 13, color: "#94A3B8", textDecoration: "none" }}>{l}</Link>
+          {[
+            { label: "Connexion", href: "/login" },
+            { label: "Inscription", href: "/login" },
+            { label: "Contact", href: "/request-demo" },
+            { label: "Confidentialité", href: "/login" },
+          ].map((l) => (
+            <Link key={l.label} href={l.href} style={{ fontSize: 13, color: "#94A3B8", textDecoration: "none" }}>{l.label}</Link>
           ))}
         </div>
       </footer>

@@ -388,7 +388,7 @@ export default function SourceDashboard() {
             <CanvasDivider />
             <CanvasSectionHeader icon="◉" label="Analyse temporelle & Distribution" />
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+            <div className="rf-grid-2" style={{ marginBottom: "1rem" }}>
               <VisualCard title="Activité (par jour)" sub={`${sinceDays} jours`} accent={config.color}>
                 <BarChart data={byDayData} height={140} color={config.color} />
               </VisualCard>

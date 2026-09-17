@@ -1,0 +1,38 @@
+{
+  "lang": "full",
+  "strategy": "none",
+  "processed_at": "2026-09-03T11:09:07.484622",
+  "cleaning": {
+    "raw": 5968,
+    "removed_empty": 0,
+    "removed_too_short": 31,
+    "removed_too_long": 0
+  },
+  "duplicates_removed": 77,
+  "sentiment": {
+    "raw": 5860,
+    "balanced": 5860,
+    "train": 4100,
+    "val": 878,
+    "test": 882,
+    "distribution": {
+      "NEUTRAL": 1428,
+      "NEGATIVE": 3698,
+      "POSITIVE": 734
+    }
+  },
+  "emotion": {
+    "raw": 5860,
+    "balanced": 5860,
+    "train": 4100,
+    "val": 877,
+    "test": 883,
+    "distribution": {
+      "frustration": 2229,
+      "satisfaction": 734,
+      "concern": 1432,
+      "urgency": 736,
+      "neutral": 729
+    }
+  }
+}

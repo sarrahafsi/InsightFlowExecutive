@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Prétraitement des Données — InsightFlow ML</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #ffffff;
+      color: #1a1a2e;
+      font-size: 14px;
+      line-height: 1.7;
+      padding: 48px 56px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    /* ── HEADER ── */
+    .doc-header {
+      border-bottom: 3px solid #4f46e5;
+      padding-bottom: 24px;
+      margin-bottom: 40px;
+    }
+    .doc-header .tag {
+      display: inline-block;
+      background: #ede9fe;
+      color: #4f46e5;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      padding: 3px 12px;
+      border-radius: 20px;
+      margin-bottom: 12px;
+    }
+    .doc-header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-bottom: 6px;
+    }
+    .doc-header p {
+      color: #6b7280;
+      font-size: 14px;
+    }
+    .doc-header .meta {
+      display: flex;
+      gap: 24px;
+      margin-top: 14px;
+      font-size: 12px;
+      color: #9ca3af;
+    }
+
+    /* ── SECTIONS ── */
+    .section {
+      margin-bottom: 48px;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .section-number {
+      width: 32px; height: 32px;
+      background: #4f46e5;
+      color: white;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .section-number.green { background: #059669; }
+    .section-number.orange { background: #d97706; }
+    .section-number.red { background: #dc2626; }
+    .section-number.blue { background: #2563eb; }
+    h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1a1a2e;
+    }
+    h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 8px;
+      margin-top: 20px;
+    }
+
+    /* ── INTRO BOX ── */
+    .intro-box {
+      background: #f5f3ff;
+      border-left: 4px solid #4f46e5;
+      border-radius: 0 8px 8px 0;
+      padding: 14px 18px;
+      margin-bottom: 24px;
+      font-size: 13px;
+      color: #4338ca;
+    }
+
+    /* ── STEP CARDS ── */
+    .steps-grid {
+      display: grid;
+      gap: 16px;
+    }
+    .step-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .step-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .step-icon {
+      font-size: 18px;
+    }
+    .step-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #1a1a2e;
+    }
+    .step-why {
+      font-size: 11px;
+      color: #6b7280;
+      margin-left: auto;
+      font-style: italic;
+    }
+    .step-body {
+      padding: 14px 16px;
+    }
+    .step-body p {
+      font-size: 13px;
+      color: #374151;
+      margin-bottom: 10px;
+    }
+
+    /* ── CODE BLOCKS ── */
+    .code-block {
+      background: #1e1e2e;
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: #cdd6f4;
+      overflow-x: auto;
+      line-height: 1.8;
+    }
+    .code-block .comment { color: #6c7086; font-style: italic; }
+    .code-block .before { color: #f38ba8; }
+    .code-block .after { color: #a6e3a1; }
+    .code-block .label { color: #89b4fa; font-weight: 600; }
+    .code-block .num { color: #fab387; }
+    .code-block .arrow { color: #cba6f7; }
+
+    /* ── INLINE CODE ── */
+    code {
+      background: #f3f4f6;
+      color: #4f46e5;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+
+    /* ── TABLES ── */
+    .table-wrap {
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid #e5e7eb;
+      margin-top: 16px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    thead {
+      background: #f3f4f6;
+    }
+    th {
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #6b7280;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    td {
+      padding: 10px 14px;
+      font-size: 13px;
+      border-bottom: 1px solid #f3f4f6;
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    .td-bold { font-weight: 700; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+    .td-green { color: #059669; font-weight: 700; }
+    .td-red { color: #dc2626; }
+    .td-blue { color: #2563eb; font-weight: 700; }
+    .td-purple { color: #4f46e5; }
+
+    /* ── BALANCE VIZ ── */
+    .balance-viz {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-top: 12px;
+    }
+    .balance-viz .bv-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 12px;
+    }
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .bar-label {
+      font-size: 12px;
+      font-weight: 600;
+      width: 80px;
+      flex-shrink: 0;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .bar-track {
+      flex: 1;
+      background: #e5e7eb;
+      border-radius: 4px;
+      height: 18px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      display: flex; align-items: center;
+      padding-left: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: white;
+    }
+    .bar-count {
+      font-size: 12px;
+      color: #6b7280;
+      width: 90px;
+      text-align: right;
+      flex-shrink: 0;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* ── FORMULA BOX ── */
+    .formula-box {
+      background: #1e1e2e;
+      border-radius: 10px;
+      padding: 20px 24px;
+      margin: 16px 0;
+      text-align: center;
+    }
+    .formula-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 18px;
+      color: #cba6f7;
+      letter-spacing: 1px;
+    }
+    .formula-legend {
+      margin-top: 12px;
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .formula-legend span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #89b4fa;
+    }
+
+    /* ── COMPARISON CARDS ── */
+    .option-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .option-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 14px;
+    }
+    .option-card.recommended {
+      border-color: #4f46e5;
+      background: #f5f3ff;
+    }
+    .option-card .opt-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 20px;
+      margin-bottom: 8px;
+    }
+    .opt-badge.up { background: #d1fae5; color: #065f46; }
+    .opt-badge.down { background: #fee2e2; color: #991b1b; }
+    .opt-badge.eq { background: #ede9fe; color: #4338ca; }
+    .option-card .opt-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+    .option-card .opt-desc { font-size: 12px; color: #6b7280; line-height: 1.6; }
+    .option-card .opt-pro { color: #059669; font-size: 11px; margin-top: 8px; }
+    .option-card .opt-con { color: #dc2626; font-size: 11px; }
+
+    /* ── SPLIT VIZ ── */
+    .split-viz {
+      display: flex;
+      gap: 0;
+      border-radius: 8px;
+      overflow: hidden;
+      height: 36px;
+      margin-top: 12px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .split-part {
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; color: white;
+    }
+
+    /* ── SUMMARY TABLE ── */
+    .summary-card {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-top: 48px;
+    }
+    .summary-card h2 { font-size: 16px; margin-bottom: 16px; }
+
+    /* ── CALLOUT ── */
+    .callout {
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 13px;
+      margin-top: 12px;
+      display: flex;
+      gap: 10px;
+    }
+    .callout-info { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+    .callout-warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+    .callout-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #14532d; }
+
+    /* ── PAGE BREAK (print) ── */
+    @media print {
+      body { padding: 0; font-size: 13px; }
+      .no-break { page-break-inside: avoid; }
+      .page-break { page-break-before: always; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ════ HEADER ════ -->
+<div class="doc-header">
+  <div class="tag">InsightFlow Executive · ML Pipeline</div>
+  <h1>Prétraitement des Données</h1>
+  <p>Comprendre chaque étape de <code>preprocess.py</code> — du texte brut au dataset prêt pour le fine-tuning</p>
+  <div class="meta">
+    <span>📁 ml/preprocess.py</span>
+    <span>🌍 Français + Anglais</span>
+    <span>🎯 Sentiment (3 classes) &amp; Émotion (5 classes)</span>
+    <span>📊 ~3 000 samples synthétiques</span>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════
+     SECTION 1 — NETTOYAGE
+════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-number">1</div>
+    <h2>Nettoyage du texte</h2>
+  </div>
+
+  <div class="intro-box">
+    Objectif : donner au modèle du texte <strong>propre, sans bruit</strong>. Chaque élément supprimé n'a aucun sens sémantique pour prédire le sentiment ou l'émotion — le garder forcerait le modèle à apprendre des patterns inutiles.
+  </div>
+
+  <div class="steps-grid">
+
+    <!-- URLs & emails -->
+    <div class="step-card no-break">
+      <div class="step-card-header">
+        <span class="step-icon">✂️</span>
+        <span class="step-title">Suppression des URLs &amp; adresses email</span>
+        <span class="step-why">Le modèle ne doit pas apprendre de domaines spécifiques</span>
+      </div>
+      <div class="step-body">
+        <div class="code-block">
+<span class="label">AVANT :</span>  <span class="before">"Check the PR at https://github.com/org/repo/pull/42 ASAP"</span>
+<span class="label">APRÈS :</span>  <span class="after">"Check the PR at ASAP"</span>
+
+<span class="label">AVANT :</span>  <span class="before">"Contacte support@client.com pour le contrat"</span>
+<span class="label">APRÈS :</span>  <span class="after">"Contacte pour le contrat"</span>
+        </div>
+        <p style="margin-top:10px">Pourquoi ? <code>https://github.com/...</code> ne contient aucune information de sentiment. Le modèle pourrait associer certains domaines à des classes, ce qui est un faux apprentissage.</p>
+      </div>
+    </div>
+
+    <!-- Base64 -->
+    <div class="step-card no-break">
+      <div class="step-card-header">
+        <span class="step-icon">✂️</span>
+        <span class="step-title">Suppression des tokens base64</span>
+        <span class="step-why">Spécifique aux emails Gmail avec pièces jointes</span>
+      </div>
+      <div class="step-body">
+        <div class="code-block">
+<span class="label">AVANT :</span>  <span class="before">"Attachment: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."</span>
+<span class="label">APRÈS :</span>  <span class="after">"Attachment:"</span>
+        </div>
+        <p style="margin-top:10px">Ces blobs encodés apparaissent dans les emails Gmail avec des images ou fichiers joints. Ils font exploser la longueur du texte (plusieurs milliers de caractères) et dépassent immédiatement la limite de 512 tokens de XLM-RoBERTa.</p>
+      </div>
+    </div>
+
+    <!-- Signatures & reply chains -->
+    <div class="step-card no-break">
+      <div class="step-card-header">
+        <span class="step-icon">✂️</span>
+        <span class="step-title">Suppression des signatures &amp; chaînes de réponse</span>
+        <span class="step-why">Bruit répétitif présent dans tous les emails</span>
+      </div>
+      <div class="step-body">
+        <div class="code-block">
+<span class="label">AVANT :</span>  <span class="before">"Le projet est bloqué depuis 3 jours.
+
+--
+Sarah Hafsi | CEO | InsightFlow
+Tel: +216 XX XXX XXX
+
+&gt; Le 12 juin 2026, à 09:14, Ahmed a écrit :
+&gt; &gt; Bonjour, peux-tu valider le budget ?
+&gt; &gt; Cordialement, Ahmed"</span>
+
+<span class="label">APRÈS :</span>  <span class="after">"Le projet est bloqué depuis 3 jours."</span>
+        </div>
+        <p style="margin-top:10px">La signature (<code>-- \nNom | Poste</code>) et les citations répétées (<code>&gt; ...</code>) ajoutent du bruit identique dans tous les emails. Le modèle apprendrait le format au lieu du contenu.</p>
+      </div>
+    </div>
+
+    <!-- Caractères spéciaux & accents -->
+    <div class="step-card no-break">
+      <div class="step-card-header">
+        <span class="step-icon">✂️</span>
+        <span class="step-title">Caractères spéciaux supprimés, accents FR conservés</span>
+        <span class="step-why">XLM-RoBERTa est entraîné avec les accents</span>
+      </div>
+      <div class="step-body">
+        <div class="code-block">
+<span class="label">SUPPRIMÉ :</span>  <span class="before">####### === URGENT === #######</span>  <span class="arrow">→</span>  <span class="after">URGENT</span>
+<span class="label">SUPPRIMÉ :</span>  <span class="before">@@@mention &amp;&amp;&amp; {json: true}</span>  <span class="arrow">→</span>  <span class="after">mention</span>
+
+<span class="comment"># Accents conservés — ils portent du sens !</span>
+<span class="label">GARDÉ :</span>    <span class="after">"réunion urgente"</span>   <span class="comment">≠  "reunion urgente"</span>
+<span class="label">GARDÉ :</span>    <span class="after">"problème critique"</span> <span class="comment">≠  "probleme critique"</span>
+        </div>
+        <p style="margin-top:10px">Supprimer les accents (<code>é → e</code>) dégraderait les performances en français. XLM-RoBERTa a été pré-entraîné sur des textes avec accents — son vocabulaire en dépend.</p>
+      </div>
+    </div>
+
+    <!-- Espaces -->
+    <div class="step-card no-break">
+      <div class="step-card-header">
+        <span class="step-icon">✂️</span>
+        <span class="step-title">Normalisation des espaces</span>
+        <span class="step-why">Nettoyage final après suppression des éléments précédents</span>
+      </div>
+      <div class="step-body">
+        <div class="code-block">
+<span class="label">AVANT :</span>  <span class="before">"Le   projet    est\t\t\tbloqué.\n\n\n\n  Merci."</span>
+<span class="label">APRÈS :</span>  <span class="after">"Le projet est bloqué. Merci."</span>
+        </div>
+        <p style="margin-top:10px">Après suppression des URLs, signatures etc., il reste des espaces multiples, tabulations et sauts de ligne. On ramène tout à un espace simple.</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════
+     SECTION 2 — FILTRAGE QUALITÉ
+════════════════════════════════════════ -->
+<div class="section page-break">
+  <div class="section-header">
+    <div class="section-number green">2</div>
+    <h2>Filtrage qualité</h2>
+  </div>
+
+  <div class="intro-box" style="background:#f0fdf4;border-color:#059669;color:#065f46">
+    Après nettoyage, certains textes sont trop courts pour être analysés, trop longs pour le modèle, ou en double. Ces filtres garantissent la <strong>qualité et l'utilité</strong> de chaque sample.
+  </div>
+
+  <!-- Longueur min -->
+  <div class="step-card no-break" style="margin-bottom:14px">
+    <div class="step-card-header">
+      <span class="step-icon">📏</span>
+      <span class="step-title">Longueur minimale : 5 mots</span>
+      <span class="step-why">Un texte trop court n'est pas analysable</span>
+    </div>
+    <div class="step-body">
+      <div class="code-block">
+<span class="before">❌  "OK ✓"</span>                          <span class="comment">→  supprimé  (1 mot)</span>
+<span class="before">❌  "Merci."</span>                         <span class="comment">→  supprimé  (1 mot)</span>
+<span class="before">❌  "Réunion annulée."</span>               <span class="comment">→  supprimé  (2 mots)</span>
+<span class="after">✅  "Réunion annulée demain matin équipe finance"</span>  <span class="comment">→  gardé (6 mots)</span>
+      </div>
+      <p style="margin-top:10px">Un texte de 1–4 mots ne donne pas assez de contexte au modèle. "Merci." peut être POSITIVE ou NEUTRAL selon le contexte — sans contexte, c'est du bruit.</p>
+    </div>
+  </div>
+
+  <!-- Longueur max -->
+  <div class="step-card no-break" style="margin-bottom:14px">
+    <div class="step-card-header">
+      <span class="step-icon">📏</span>
+      <span class="step-title">Longueur maximale : 300 mots — troncature, PAS suppression</span>
+      <span class="step-why">Respecter la limite de 512 tokens de XLM-RoBERTa</span>
+    </div>
+    <div class="step-body">
+      <div class="code-block">
+<span class="comment"># Email de 800 mots :</span>
+<span class="label">Décision :</span>  <span class="after">Garder les 300 premiers mots</span>  <span class="comment">← tronquer</span>
+<span class="before">Ne PAS supprimer</span>  <span class="comment">← on perdrait des données précieuses</span>
+
+<span class="comment"># Pourquoi les 300 premiers ?</span>
+<span class="comment"># Le sentiment est presque toujours dans l'objet/introduction du message</span>
+      </div>
+      <div class="callout callout-info" style="margin-top:10px">
+        <span>💡</span>
+        <span>XLM-RoBERTa a une limite absolue de <strong>512 tokens</strong> (~380 mots anglais, ~300 mots français). Au-delà, le texte est tronqué automatiquement par le tokenizer. On le fait en amont de façon contrôlée plutôt que de laisser le tokenizer couper aléatoirement.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Déduplication -->
+  <div class="step-card no-break" style="margin-bottom:14px">
+    <div class="step-card-header">
+      <span class="step-icon">🔍</span>
+      <span class="step-title">Déduplication — comparaison sur les 150 premiers caractères</span>
+      <span class="step-why">Éviter l'overfitting sur des templates répétés</span>
+    </div>
+    <div class="step-body">
+      <div class="code-block">
+<span class="label">Message A :</span> <span class="after">"Le projet Phoenix est bloqué depuis 3 jours, l'équipe attend..."</span>
+<span class="label">Message B :</span> <span class="before">"Le projet Phoenix est bloqué depuis 3 jours, l'équipe attend une réponse de la direction"</span>
+
+<span class="comment"># Les 150 premiers chars sont identiques → B supprimé</span>
+
+<span class="label">Cas réel :</span>  <span class="comment">Templates Jira auto-générés, relances email identiques,</span>
+             <span class="comment">notifications Slack répétées toutes les heures</span>
+      </div>
+      <p style="margin-top:10px">Si le modèle voit 50 fois le même template Jira avec le label BLOCKED, il mémorise le template plutôt que le sens — c'est de l'<strong>overfitting</strong>. La déduplication l'empêche.</p>
+    </div>
+  </div>
+
+  <!-- Ratio déséquilibre -->
+  <div class="step-card no-break">
+    <div class="step-card-header">
+      <span class="step-icon">⚠️</span>
+      <span class="step-title">Ratio de déséquilibre maximum : 2.0×</span>
+      <span class="step-why">Alerte si une classe est trop dominante</span>
+    </div>
+    <div class="step-body">
+      <div class="balance-viz">
+        <div class="bv-title">Exemple de dataset déséquilibré (ratio = 3.0× → ⚠️ alerte)</div>
+        <div class="bar-row">
+          <div class="bar-label" style="color:#059669">POSITIVE</div>
+          <div class="bar-track"><div class="bar-fill" style="width:100%;background:#059669">1 200</div></div>
+          <div class="bar-count">1 200 samples</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label" style="color:#2563eb">NEUTRAL</div>
+          <div class="bar-track"><div class="bar-fill" style="width:66.6%;background:#2563eb">800</div></div>
+          <div class="bar-count">800 samples</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label" style="color:#dc2626">NEGATIVE</div>
+          <div class="bar-track"><div class="bar-fill" style="width:33.3%;background:#dc2626">400</div></div>
+          <div class="bar-count">400 samples</div>
+        </div>
+      </div>
+
+      <div class="code-block" style="margin-top:12px">
+ratio = max_count / min_count = <span class="num">1200</span> / <span class="num">400</span> = <span class="num">3.0</span>×
+
+<span class="before">⚠️  Ratio > 2.0 → WARNING généré dans preprocessing_report.json</span>
+<span class="comment">    → Déclenche l'étape d'équilibrage (Section 3)</span>
+      </div>
+
+      <div class="callout callout-warn" style="margin-top:10px">
+        <span>⚠️</span>
+        <span>Si le déséquilibre est ignoré, le modèle apprend à <strong>toujours prédire POSITIVE</strong> et obtient 50% d'accuracy sans rien apprendre d'utile — car 50% des données sont POSITIVE.</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- ════════════════════════════════════════
+     SECTION 3 — ÉQUILIBRAGE & SPLIT
+════════════════════════════════════════ -->
+<div class="section page-break">
+  <div class="section-header">
+    <div class="section-number orange">3</div>
+    <h2>Équilibrage des classes &amp; Split</h2>
+  </div>
+
+  <div class="intro-box" style="background:#fffbeb;border-color:#d97706;color:#92400e">
+    On a 3 stratégies pour gérer le déséquilibre. Elles ne s'excluent pas toutes — la Section 4 (Class Weights) est compatible avec n'importe laquelle. Le choix dépend de la taille du dataset et du degré de déséquilibre.
+  </div>
+
+  <!-- Dataset de référence -->
+  <h3>Dataset de départ (après filtrage)</h3>
+  <div class="balance-viz">
+    <div class="bv-title">Distribution initiale — utilisée comme référence dans les exemples suivants</div>
+    <div class="bar-row">
+      <div class="bar-label" style="color:#059669">POSITIVE</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100%;background:#059669">1 200</div></div>
+      <div class="bar-count">1 200 samples</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" style="color:#2563eb">NEUTRAL</div>
+      <div class="bar-track"><div class="bar-fill" style="width:66.6%;background:#2563eb">800</div></div>
+      <div class="bar-count">800 samples</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label" style="color:#dc2626">NEGATIVE</div>
+      <div class="bar-track"><div class="bar-fill" style="width:33.3%;background:#dc2626">400</div></div>
+      <div class="bar-count">400 samples</div>
+    </div>
+  </div>
+
+  <!-- 3 options -->
+  <div class="option-grid">
+
+    <div class="option-card no-break">
+      <div class="opt-badge up">⬆️ OVERSAMPLE</div>
+      <div class="opt-title">Option A — Oversample <span style="font-size:11px;color:#4f46e5">(défaut)</span></div>
+      <div class="code-block" style="font-size:11px;padding:10px;margin-bottom:8px">
+<span class="after">POSITIVE : 1 200</span> <span class="comment">(inchangé)</span>
+<span class="after">NEUTRAL  : 1 200</span> <span class="comment">(×1.5 copié)</span>
+<span class="after">NEGATIVE : 1 200</span> <span class="comment">(×3 copié)</span>
+<span class="comment">Total    : 3 600 ↑</span>
+      </div>
+      <div class="opt-desc">Duplique les samples des classes minoritaires jusqu'à égalité.</div>
+      <div class="opt-pro">✅ Simple · Garde toutes les données</div>
+      <div class="opt-con">❌ Crée des doublons → risque de mémorisation</div>
+    </div>
+
+    <div class="option-card no-break">
+      <div class="opt-badge down">⬇️ UNDERSAMPLE</div>
+      <div class="opt-title">Option B — Undersample</div>
+      <div class="code-block" style="font-size:11px;padding:10px;margin-bottom:8px">
+<span class="after">POSITIVE :   400</span> <span class="comment">(réduit)</span>
+<span class="after">NEUTRAL  :   400</span> <span class="comment">(réduit)</span>
+<span class="after">NEGATIVE :   400</span> <span class="comment">(inchangé)</span>
+<span class="comment">Total    : 1 200 ↓</span>
+      </div>
+      <div class="opt-desc">Réduit les classes majoritaires à la taille de la classe minoritaire.</div>
+      <div class="opt-pro">✅ Pas de doublons · Entraînement rapide</div>
+      <div class="opt-con">❌ Perd 2 400 données précieuses</div>
+    </div>
+
+    <div class="option-card recommended no-break">
+      <div class="opt-badge eq">⚖️ NONE + WEIGHTS</div>
+      <div class="opt-title">Option C — None <span style="font-size:11px;color:#4f46e5">★ le plus élégant</span></div>
+      <div class="code-block" style="font-size:11px;padding:10px;margin-bottom:8px">
+<span class="after">POSITIVE : 1 200</span> <span class="comment">(inchangé)</span>
+<span class="after">NEUTRAL  :   800</span> <span class="comment">(inchangé)</span>
+<span class="after">NEGATIVE :   400</span> <span class="comment">(inchangé)</span>
+<span class="comment">+ class_weights dans la loss</span>
+      </div>
+      <div class="opt-desc">Garde le dataset tel quel. La formule de poids compense le déséquilibre pendant l'entraînement.</div>
+      <div class="opt-pro">✅ Aucune perte · Pas de doublons</div>
+      <div class="opt-con">❌ Moins intuitif à comprendre</div>
+    </div>
+
+  </div>
+
+  <!-- Split stratifié -->
+  <h3 style="margin-top:28px">Split stratifié 70 / 15 / 15</h3>
+
+  <div class="callout callout-info">
+    <span>💡</span>
+    <span><strong>"Stratifié"</strong> signifie que chaque sous-ensemble (train, validation, test) <strong>respecte exactement les proportions de classe du dataset original</strong> — il n'y a pas de tirage aléatoire naïf.</span>
+  </div>
+
+  <div class="step-card no-break" style="margin-top:14px">
+    <div class="step-body">
+      <div class="code-block">
+<span class="comment"># Dataset original :</span>  <span class="num">60%</span> POSITIVE · <span class="num">27%</span> NEUTRAL · <span class="num">13%</span> NEGATIVE
+
+<span class="label">Train</span>  (<span class="num">70%</span>)  →  <span class="num">60%</span> POS · <span class="num">27%</span> NEU · <span class="num">13%</span> NEG  <span class="after">✓</span>
+<span class="label">Val</span>    (<span class="num">15%</span>)  →  <span class="num">60%</span> POS · <span class="num">27%</span> NEU · <span class="num">13%</span> NEG  <span class="after">✓</span>
+<span class="label">Test</span>   (<span class="num">15%</span>)  →  <span class="num">60%</span> POS · <span class="num">27%</span> NEU · <span class="num">13%</span> NEG  <span class="after">✓</span>
+      </div>
+
+      <div style="margin-top:14px">
+        <div style="font-size:12px;color:#6b7280;margin-bottom:6px">Répartition visuelle du dataset (2 400 samples total) :</div>
+        <div class="split-viz">
+          <div class="split-part" style="width:70%;background:#4f46e5">TRAIN · 1 680</div>
+          <div class="split-part" style="width:15%;background:#059669">VAL · 360</div>
+          <div class="split-part" style="width:15%;background:#dc2626">TEST · 360</div>
+        </div>
+        <div style="display:flex;gap:0;margin-top:4px">
+          <div style="width:70%;text-align:center;font-size:11px;color:#4f46e5">Fine-tuning du modèle</div>
+          <div style="width:15%;text-align:center;font-size:11px;color:#059669">Early stopping</div>
+          <div style="width:15%;text-align:center;font-size:11px;color:#dc2626">Métriques finales</div>
+        </div>
+      </div>
+
+      <div class="callout callout-warn" style="margin-top:12px">
+        <span>⚠️</span>
+        <span>Sans stratification, on pourrait obtenir par malchance un test set avec <strong>0 samples NEGATIVE</strong> → F1 calculé sur 2 classes seulement → métriques faussées et incomparables.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout callout-info" style="margin-top:14px">
+    <span>📁</span>
+    <span>Les 6 fichiers produits : <code>clean_sentiment_train.csv</code>, <code>clean_sentiment_val.csv</code>, <code>clean_sentiment_test.csv</code>, + les 3 équivalents emotion. Résumé statistique dans <code>preprocessing_report.json</code>.</span>
+  </div>
+
+</div>
+
+
+<!-- ════════════════════════════════════════
+     SECTION 4 — CLASS WEIGHTING
+════════════════════════════════════════ -->
+<div class="section page-break">
+  <div class="section-header">
+    <div class="section-number red">4</div>
+    <h2>Formule de Class Weighting</h2>
+  </div>
+
+  <div class="intro-box" style="background:#fef2f2;border-color:#dc2626;color:#991b1b">
+    C'est la technique la plus élégante pour gérer le déséquilibre. Au lieu de modifier le dataset, on modifie <strong>la fonction de perte (loss)</strong> pendant l'entraînement : les erreurs sur les classes rares coûtent plus cher.
+  </div>
+
+  <!-- La formule -->
+  <h3>La formule</h3>
+  <div class="formula-box">
+    <div class="formula-text">weight[i] = total_samples / (num_classes × count[i])</div>
+    <div class="formula-legend">
+      <span>weight[i] = poids de la classe i</span>
+      <span>total_samples = nb total d'exemples</span>
+      <span>num_classes = nombre de classes</span>
+      <span>count[i] = nb d'exemples de la classe i</span>
+    </div>
+  </div>
+
+  <!-- Application numérique -->
+  <h3>Application numérique — avec le dataset de référence</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Classe</th>
+          <th>count[i]</th>
+          <th>Calcul</th>
+          <th>Poids</th>
+          <th>Interprétation</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="td-bold" style="color:#059669">POSITIVE</td>
+          <td class="td-bold">1 200</td>
+          <td style="font-family:monospace;font-size:12px;color:#6b7280">2 400 / (3 × 1 200)</td>
+          <td class="td-bold td-green">0.67</td>
+          <td style="font-size:12px">Classe majoritaire → poids faible</td>
+        </tr>
+        <tr>
+          <td class="td-bold" style="color:#2563eb">NEUTRAL</td>
+          <td class="td-bold">800</td>
+          <td style="font-family:monospace;font-size:12px;color:#6b7280">2 400 / (3 × 800)</td>
+          <td class="td-bold td-blue">1.00</td>
+          <td style="font-size:12px">Classe médiane → poids neutre</td>
+        </tr>
+        <tr>
+          <td class="td-bold" style="color:#dc2626">NEGATIVE</td>
+          <td class="td-bold">400</td>
+          <td style="font-family:monospace;font-size:12px;color:#6b7280">2 400 / (3 × 400)</td>
+          <td class="td-bold td-red">2.00</td>
+          <td style="font-size:12px">Classe minoritaire → poids élevé</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Ce que ça change -->
+  <h3 style="margin-top:24px">Ce que ça change concrètement pendant l'entraînement</h3>
+  <div class="step-card no-break">
+    <div class="step-body">
+      <div class="code-block">
+<span class="comment"># SANS poids → CrossEntropyLoss standard</span>
+<span class="comment"># Toutes les erreurs sont traitées pareil :</span>
+Se tromper sur un POSITIVE  →  pénalité = <span class="num">1.0</span>
+Se tromper sur un NEUTRAL   →  pénalité = <span class="num">1.0</span>
+Se tromper sur un NEGATIVE  →  pénalité = <span class="num">1.0</span>  <span class="before">← injuste ! NEGATIVE est rare</span>
+
+<span class="comment"># Le modèle peut "tricher" : prédire toujours POSITIVE</span>
+<span class="comment"># → 50% accuracy sans rien apprendre</span>
+
+
+<span class="comment"># AVEC poids → CrossEntropyLoss(weight=[0.67, 1.0, 2.0])</span>
+Se tromper sur un POSITIVE  →  pénalité = <span class="after">0.67</span>  <span class="comment">← moins grave, c'est fréquent</span>
+Se tromper sur un NEUTRAL   →  pénalité = <span class="after">1.00</span>
+Se tromper sur un NEGATIVE  →  pénalité = <span class="after">2.00</span>  <span class="comment">← grave ! C'est rare et précieux</span>
+
+<span class="comment"># Le modèle fait maintenant des efforts sur les classes rares</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Code implémentation -->
+  <h3 style="margin-top:20px">Implémentation dans WeightedTrainer</h3>
+  <div class="code-block">
+<span class="comment"># ml/finetune.py — WeightedTrainer</span>
+<span class="label">import</span> torch
+<span class="label">from</span> transformers <span class="label">import</span> Trainer
+<span class="label">from</span> torch.nn <span class="label">import</span> CrossEntropyLoss
+
+<span class="label">class</span> <span class="after">WeightedTrainer</span>(Trainer):
+    <span class="label">def</span> <span class="after">compute_loss</span>(self, model, inputs, return_outputs=<span class="num">False</span>, **kwargs):
+        labels = inputs.pop(<span class="num">"labels"</span>)
+        outputs = model(**inputs)
+        logits = outputs.logits
+
+        <span class="comment"># Poids calculés à partir du dataset d'entraînement</span>
+        class_weights = torch.tensor([<span class="num">0.67</span>, <span class="num">1.00</span>, <span class="num">2.00</span>], device=logits.device)
+
+        loss_fn = CrossEntropyLoss(weight=class_weights)
+        loss = loss_fn(logits, labels)
+
+        <span class="label">return</span> (loss, outputs) <span class="label">if</span> return_outputs <span class="label">else</span> loss
+  </div>
+
+  <!-- Intuition -->
+  <div class="callout callout-success" style="margin-top:16px">
+    <span>✅</span>
+    <div>
+      <strong>Intuition :</strong> imagine que tu es prof et que tu notes un examen. Si 10 élèves ont réussi la question 1 et seulement 2 ont réussi la question 5, tu vas <em>valoriser davantage</em> les erreurs sur la question 5 pour comprendre ce qui bloque. C'est exactement ce que font les class weights avec le modèle.
+    </div>
+  </div>
+
+  <!-- Propriété mathématique -->
+  <h3 style="margin-top:20px">Propriété mathématique de la formule</h3>
+  <div class="step-card no-break">
+    <div class="step-body">
+      <p>La formule garantit que si toutes les classes étaient équilibrées (<code>count[i] = total / num_classes</code>), tous les poids seraient égaux à <strong>1.0</strong> :</p>
+      <div class="code-block" style="margin-top:10px">
+<span class="comment"># Si POSITIVE = NEUTRAL = NEGATIVE = 800  (équilibré)</span>
+weight[POSITIVE] = <span class="num">2400</span> / (<span class="num">3</span> × <span class="num">800</span>) = <span class="num">2400</span> / <span class="num">2400</span> = <span class="after">1.0</span>
+weight[NEUTRAL]  = <span class="num">2400</span> / (<span class="num">3</span> × <span class="num">800</span>) = <span class="after">1.0</span>
+weight[NEGATIVE] = <span class="num">2400</span> / (<span class="num">3</span> × <span class="num">800</span>) = <span class="after">1.0</span>
+
+<span class="comment"># → Dataset équilibré = loss standard, aucune correction nécessaire</span>
+      </div>
+      <p style="margin-top:10px">Plus la classe est rare, plus son poids est grand. Plus elle est fréquente, plus son poids s'approche de 0. La formule est <strong>auto-adaptative</strong> au déséquilibre de n'importe quel dataset.</p>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- ════════════════════════════════════════
+     RÉSUMÉ FINAL
+════════════════════════════════════════ -->
+<div class="summary-card no-break">
+  <h2>Résumé — Pourquoi chaque étape est nécessaire</h2>
+  <div class="table-wrap" style="margin-top:0;border:none">
+    <table>
+      <thead>
+        <tr>
+          <th>Étape</th>
+          <th>Sans cette étape</th>
+          <th>Avec cette étape</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Suppression URLs/base64</strong></td>
+          <td class="td-red">Le modèle apprend des noms de domaine, pas le sentiment</td>
+          <td class="td-green">Texte sémantique pur uniquement</td>
+        </tr>
+        <tr>
+          <td><strong>Suppression signatures</strong></td>
+          <td class="td-red">Patterns répétitifs identiques dans tous les emails</td>
+          <td class="td-green">Seul le contenu pertinent reste</td>
+        </tr>
+        <tr>
+          <td><strong>Conservation des accents FR</strong></td>
+          <td class="td-red">Dégradation performances français</td>
+          <td class="td-green">XLM-RoBERTa fonctionne en natif</td>
+        </tr>
+        <tr>
+          <td><strong>Filtre longueur min</strong></td>
+          <td class="td-red">"Merci." analysé sans contexte → bruit</td>
+          <td class="td-green">Textes analysables uniquement</td>
+        </tr>
+        <tr>
+          <td><strong>Troncature à 300 mots</strong></td>
+          <td class="td-red">Erreur : dépassement limite 512 tokens</td>
+          <td class="td-green">Contrôle propre de la longueur</td>
+        </tr>
+        <tr>
+          <td><strong>Déduplication</strong></td>
+          <td class="td-red">Overfitting sur des templates Jira/Slack</td>
+          <td class="td-green">Diversité garantie du dataset</td>
+        </tr>
+        <tr>
+          <td><strong>Détection déséquilibre</strong></td>
+          <td class="td-red">Silence sur un problème critique</td>
+          <td class="td-green">Warning explicite dans le rapport</td>
+        </tr>
+        <tr>
+          <td><strong>Class weights</strong></td>
+          <td class="td-red">Modèle qui prédit toujours POSITIVE</td>
+          <td class="td-green">Modèle attentif aux classes rares</td>
+        </tr>
+        <tr>
+          <td><strong>Split stratifié</strong></td>
+          <td class="td-red">Test set sans représentation d'une classe</td>
+          <td class="td-green">Métriques representatives et fiables</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div style="margin-top:32px;padding-top:20px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;display:flex;justify-content:space-between">
+  <span>InsightFlow Executive — Projet PFE 2025–2026</span>
+  <span>ml/preprocess.py · XLM-RoBERTa · FR + EN</span>
+</div>
+
+</body>
+</html>

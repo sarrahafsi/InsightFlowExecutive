@@ -9,18 +9,18 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from integrations.connectors.schemas import DataItem
 from core.models import MessageRaw
 
 logger = logging.getLogger(__name__)
 
-# NLP pipeline — initialisé en lazy (None jusqu'au premier appel)
 _nlp_pipeline = None
 
 
 def get_nlp_pipeline():
-    """Lazy init du pipeline NLP — chargé une seule fois."""
+    
     global _nlp_pipeline
     if _nlp_pipeline is None:
         from intelligence.nlp.pipeline import NLPPipeline
@@ -48,7 +48,8 @@ def _build_source_meta(item: DataItem) -> dict:
         for k in ("key", "status", "priority", "issue_type", "story_points",
                   "assignee", "assignee_name", "reporter", "created",
                   "cycle_time_days", "channel", "channel_id",
-                  "team_id", "team_name", "channel_name", "importance"):
+                  "team_id", "team_name", "channel_name", "importance",
+                  "is_voice"):
             if item.metadata.get(k) is not None:
                 source_meta[k] = item.metadata[k]
     return source_meta
@@ -88,43 +89,56 @@ def load_items(items: list[DataItem], db: Session, run_nlp: bool = True, org_id:
             logger.warning("[ETL] NLP pipeline failed, inserting without enrichment: %s", e)
 
     # ── Insert nouveaux items ─────────────────────────────────
+    # ON CONFLICT DO NOTHING (plutôt qu'un ORM add()+commit() classique) : le
+    # pré-check `existing_ids` ci-dessus est vulnérable à une race condition —
+    # si deux appels à load_items() tournent en parallèle pour le même message
+    # (ex. Slack qui renvoie deux fois le même webhook), les deux peuvent voir
+    # l'id comme "nouveau" avant que l'un des deux n'ait commité. Un insert ORM
+    # classique plantait alors sur IntegrityError et faisait échouer TOUT le lot,
+    # y compris les autres messages réellement nouveaux du même batch (incident
+    # observé le 04/09/2026 : un doublon Slack a fait perdre un vrai message).
+    # ON CONFLICT DO NOTHING laisse Postgres arbitrer la course au niveau ligne,
+    # sans crasher le reste du batch.
     inserted = 0
-    for item in new_items:
-        nlp = enriched_map.get(item.id)
-        row = MessageRaw(
-            id=item.id,
-            org_id=org_id,
-            source=item.source,
-            author=item.author,
-            author_email=item.metadata.get("from_email", "") if item.metadata else "",
-            timestamp=item.timestamp,
-            title=item.title,
-            content=(item.content or "")[:10000],
-            item_type=item.type,
-            tags=item.tags or [],
-            thread_id=item.metadata.get("thread_id") if item.metadata else None,
-            url=item.url,
-            # NLP
-            sentiment_label=getattr(nlp, "sentiment_label", None),
-            sentiment_score=getattr(nlp, "sentiment_score", None),
-            emotion_label=getattr(nlp, "emotion_label", None),
-            emotion_score=getattr(nlp, "emotion_score", None),
-            topic=getattr(nlp, "topic", None),
-            business_label=getattr(nlp, "business_label", None),
-            business_confidence=getattr(nlp, "business_confidence", None),
-            business_reason=getattr(nlp, "business_reason", None),
-            # Behavioral
-            hour_sent=nlp.metadata.get("hour_sent")          if nlp else None,
-            is_weekend=nlp.metadata.get("is_weekend")        if nlp else None,
-            is_after_hours=nlp.metadata.get("is_after_hours") if nlp else None,
-            response_delay_min=nlp.metadata.get("response_delay_min") if nlp else None,
-            thread_depth=nlp.metadata.get("thread_depth")    if nlp else None,
-            daily_volume=nlp.metadata.get("daily_volume")    if nlp else None,
-            burnout_score=nlp.metadata.get("burnout_score")  if nlp else None,
-            metadata_json=_build_source_meta(item),
-        )
-        db.add(row)
-        inserted += 1
+    if new_items:
+        rows = []
+        for item in new_items:
+            nlp = enriched_map.get(item.id)
+            rows.append(dict(
+                id=item.id,
+                org_id=org_id,
+                source=item.source,
+                author=item.author,
+                author_email=item.metadata.get("from_email", "") if item.metadata else "",
+                timestamp=item.timestamp,
+                title=item.title,
+                content=(item.content or "")[:10000],
+                item_type=item.type,
+                tags=item.tags or [],
+                thread_id=item.metadata.get("thread_id") if item.metadata else None,
+                url=item.url,
+                # NLP
+                sentiment_label=getattr(nlp, "sentiment_label", None),
+                sentiment_score=getattr(nlp, "sentiment_score", None),
+                emotion_label=getattr(nlp, "emotion_label", None),
+                emotion_score=getattr(nlp, "emotion_score", None),
+                topic=getattr(nlp, "topic", None),
+                business_label=getattr(nlp, "business_label", None),
+                business_confidence=getattr(nlp, "business_confidence", None),
+                business_reason=getattr(nlp, "business_reason", None),
+                # Behavioral
+                hour_sent=nlp.metadata.get("hour_sent")          if nlp else None,
+                is_weekend=nlp.metadata.get("is_weekend")        if nlp else None,
+                is_after_hours=nlp.metadata.get("is_after_hours") if nlp else None,
+                response_delay_min=nlp.metadata.get("response_delay_min") if nlp else None,
+                thread_depth=nlp.metadata.get("thread_depth")    if nlp else None,
+                daily_volume=nlp.metadata.get("daily_volume")    if nlp else None,
+                burnout_score=nlp.metadata.get("burnout_score")  if nlp else None,
+                metadata_json=_build_source_meta(item),
+            ))
+        stmt = pg_insert(MessageRaw).values(rows).on_conflict_do_nothing(index_elements=["id"])
+        result = db.execute(stmt)
+        inserted = result.rowcount or 0
 
     # ── Update items existants ────────────────────────────────
     updated = 0
@@ -157,6 +171,8 @@ def load_items(items: list[DataItem], db: Session, run_nlp: bool = True, org_id:
         try:
             from intelligence.rag.embedder import index_items
             to_index = [enriched_map.get(i.id, i) for i in new_items]
+            for it in to_index:
+                it.metadata = {**(it.metadata or {}), "org_id": org_id or ""}
             index_items(to_index)
         except Exception as e:
             logger.warning("[ETL] ChromaDB indexation ignorée : %s", e)

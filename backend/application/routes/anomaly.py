@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from core.database import get_db
 from core.models import AnomalyEvent, User
-from core.security import get_current_user
+from core.security import require_plan
 
 router = APIRouter(prefix="/anomaly", tags=["anomaly"])
 
@@ -27,7 +27,7 @@ def list_anomaly_events(
     source: str = "",
     severity: str = "",
     limit: int = 20,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_plan("anomaly")),
     db: Session = Depends(get_db),
 ):
     """Retourne les anomalies détectées, triées par sévérité puis date."""
@@ -70,7 +70,7 @@ def list_anomaly_events(
 
 @router.get("/status")
 def anomaly_status(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_plan("anomaly")),
     db: Session = Depends(get_db),
 ):
     """
@@ -109,7 +109,7 @@ def anomaly_status(
 @router.post("/run")
 def run_detection_now(
     window_days: int = 14,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_plan("anomaly")),
     db: Session = Depends(get_db),
 ):
     """Déclenche une détection manuelle (sans passer par Celery)."""
@@ -141,7 +141,7 @@ def run_detection_now(
 @router.patch("/events/{event_id}/read")
 def mark_as_read(
     event_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_plan("anomaly")),
     db: Session = Depends(get_db),
 ):
     """Marquer une anomalie comme lue."""

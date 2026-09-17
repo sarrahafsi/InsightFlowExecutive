@@ -56,17 +56,21 @@ async def list_tools() -> list[Tool]:
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    # Injecté par le backend juste avant l'appel — cf. gmail_server.py.
+    org_id = arguments.get("_org_id")
+    if not org_id:
+        return [TextContent(type="text", text=json.dumps({"error": "org_id manquant"}))]
+
     if name == "get_analytics_summary":
         days = arguments.get("days", 7)
         try:
-            from application.deps import item_store
+            from core.store import OrgScopedItemStore
             from data.analytics.engine import compute_overview
-            items    = item_store.get_recent(days=days)
-            overview = compute_overview(items) if items else {}
+            overview = compute_overview(OrgScopedItemStore(org_id), since_days=days)
             result   = {
                 "analytics":   overview,
                 "period_days": days,
-                "total_items": len(items) if items else 0,
+                "total_items": overview.get("total_items", 0),
             }
         except Exception as e:
             result = {"error": str(e), "days": days}
@@ -80,6 +84,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         try:
             since = datetime.utcnow() - timedelta(days=days)
             rows  = db.query(MessageRaw).filter(
+                MessageRaw.org_id == org_id,
                 MessageRaw.timestamp >= since,
                 MessageRaw.burnout_score >= threshold,
             ).order_by(MessageRaw.burnout_score.desc()).limit(15).all()

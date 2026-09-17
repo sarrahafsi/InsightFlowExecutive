@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import API from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
@@ -29,8 +29,7 @@ import MLStatusCard from "@/components/MLStatusCard";
 import TeamOverloadCard from "@/components/intelligence/TeamOverloadCard";
 import PriorityMessages from "@/components/PriorityMessages";
 import AttributionPanel from "@/components/AttributionPanel";
-import AIRecommendations from "@/components/AIRecommendations";
-import HeatmapChart from "@/components/charts/HeatmapChart";
+import DailyBrief from "@/components/DailyBrief";
 
 const SOURCE_COLORS: Record<string, string> = {
   gmail: "#EA4335", slack: "#4A154B", jira: "#0052CC",
@@ -373,16 +372,36 @@ export default function DashboardOverview() {
   const drill = (kpiId: string, title: string, value: string | number) =>
     setDrillItem({ kpiId, title, value });
 
-  const fetchData = () => {
-    setLoading(true);
-    setError(null);
+  const fetchData = (silent = false) => {
+    if (!silent) { setLoading(true); setError(null); }
     API.get(`/api/analytics/overview?since_days=${sinceDays}`)
       .then(r => setData(r.data))
-      .catch(e => setError(e.message ?? String(e)))
-      .finally(() => setLoading(false));
+      .catch(e => { if (!silent) setError(e.message ?? String(e)); })
+      .finally(() => { if (!silent) setLoading(false); });
   };
 
-  useEffect(() => { fetchData(); }, [sinceDays, syncSignal]);
+  // Changement de période (action utilisateur) → chargement plein écran, attendu.
+  useEffect(() => { fetchData(); }, [sinceDays]);
+
+  // Signal WebSocket (nouvelles données en arrière-plan) → mise à jour
+  // silencieuse, sans redémonter toute la page. Ignore le premier appel
+  // (React exécute l'effet au montage même si syncSignal n'a pas changé).
+  const isFirstSyncSignal = useRef(true);
+  useEffect(() => {
+    if (isFirstSyncSignal.current) { isFirstSyncSignal.current = false; return; }
+    fetchData(true);
+  }, [syncSignal]);
+
+  // Sync automatique à l'ouverture du dashboard — récupère les messages
+  // des dernières 24h sans attendre le prochain cycle périodique (jusqu'à
+  // 15 min pour la boucle générique). La page affiche déjà les données
+  // existantes pendant ce temps ; le refetch après sync est silencieux.
+  useEffect(() => {
+    API.post("/api/sync", { since_days: 1 })
+      .then(() => fetchData(true))
+      .catch(() => {}); // échec silencieux — les cycles périodiques prendront le relais
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSync = async () => {
     setSyncing(true); setSyncMsg(null);
@@ -557,8 +576,14 @@ export default function DashboardOverview() {
       {activeTab === "overview" && (
         <div>
 
-          {/* Executive summary */}
-          <OrganizationHealthPanel sinceDays={sinceDays} />
+          {/* Daily Brief — "3 choses qui nécessitent votre attention" (filtre Aujourd'hui) */}
+          {sinceDays === 1 && <DailyBrief />}
+
+          {/* À lire en priorité — juste sous le Daily Brief */}
+          <PriorityInbox sinceDays={sinceDays} />
+
+          {/* État de l'organisation + résumé hebdomadaire (filtre 7 jours) */}
+          {sinceDays === 7 && <OrganizationHealthPanel sinceDays={sinceDays} />}
 
           {/* BI Canvas */}
           <div style={{
@@ -682,7 +707,7 @@ export default function DashboardOverview() {
             <CanvasDivider />
             <CanvasSectionHeader icon="◉" label="Analyse temporelle & Distribution" />
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+            <div className="rf-grid-2" style={{ marginBottom: "1rem" }}>
               <VisualCard title="Activité globale" sub="Messages par jour" accent="#3e5c76">
                 <LineChart data={data.activity_timeline} height={140} />
               </VisualCard>
@@ -694,7 +719,7 @@ export default function DashboardOverview() {
               </VisualCard>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+            <div className="rf-grid-3" style={{ marginBottom: "1rem" }}>
               <VisualCard title="Volume par source" sub="Nombre de messages" accent="#3e5c76">
                 <BarChart
                   data={Object.entries(data.by_source as Record<string, number>).map(([k, v]) => ({
@@ -713,20 +738,13 @@ export default function DashboardOverview() {
               </VisualCard>
             </div>
 
-            <VisualCard title="Heatmap des tensions" sub="Heure × Jour — tensions et frustrations détectées" accent="#8b5cf6">
-              <HeatmapChart sinceDays={sinceDays} />
-            </VisualCard>
-
             {/* ─ Section 4 : CEO Intelligence ────────────────── */}
             <CanvasDivider />
             <CanvasSectionHeader icon="🎯" label="Intelligence CEO" badge="IA" />
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+            <div style={{ marginBottom: "1rem" }}>
               <VisualCard title="Messages à lire maintenant" sub="Top 3 messages critiques" accent="#ef4444">
                 <PriorityMessages sinceDays={sinceDays} />
-              </VisualCard>
-              <VisualCard title="Recommandations IA" sub="Actions suggérées par l'IA" accent="#3e5c76">
-                <AIRecommendations sinceDays={sinceDays} />
               </VisualCard>
             </div>
 
@@ -757,7 +775,6 @@ export default function DashboardOverview() {
             </div>
           )}
           <AnomalyCard />
-          <PriorityInbox sinceDays={sinceDays} />
         </div>
       )}
 
@@ -766,7 +783,7 @@ export default function DashboardOverview() {
       ══════════════════════════════════════════════════════════ */}
       {activeTab === "decisions" && (
         <div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
+          <div className="rf-grid-2" style={{ gap: "1.5rem", marginBottom: "1.5rem" }}>
             <DecisionLog />
             <ActionItems />
           </div>
@@ -779,7 +796,7 @@ export default function DashboardOverview() {
       ══════════════════════════════════════════════════════════ */}
       {activeTab === "team" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-          <div style={{ display: "grid", gridTemplateColumns: intel.burnout ? "1fr 1fr" : "1fr", gap: "1.5rem" }}>
+          <div className={intel.burnout && currentUser?.role !== "ceo" ? "rf-grid-2" : undefined} style={{ display: "grid", gridTemplateColumns: intel.burnout && currentUser?.role !== "ceo" ? undefined : "1fr", gap: "1.5rem" }}>
             {intel.burnout ? (
               <BurnoutCard data={intel.burnout} />
             ) : (
@@ -789,7 +806,8 @@ export default function DashboardOverview() {
                 <div style={{ fontSize: 12, marginTop: 4 }}>L'équipe semble opérer normalement</div>
               </div>
             )}
-            <MLStatusCard />
+            {/* Continuous Learning / ML ops — pas pertinent pour le CEO, réservé PM/superadmin */}
+            {currentUser?.role !== "ceo" && <MLStatusCard />}
           </div>
           <TeamOverloadCard sinceDays={sinceDays} />
         </div>

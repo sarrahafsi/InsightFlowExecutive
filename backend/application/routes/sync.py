@@ -6,8 +6,8 @@ from pydantic import BaseModel
 
 from integrations.connectors import ConnectorManager, SourceType, SyncResult
 from core.store import ItemStore
-from core.models import User
-from core.security import get_current_user
+from core.models import User, SourceConfig
+from core.security import get_current_org_user
 from application.deps import get_manager, get_store
 from core.database import SessionLocal
 
@@ -56,26 +56,48 @@ def _run_nlp_background(item_ids: list[str], since_days: int, store: ItemStore) 
 async def trigger_sync(
     body: SyncRequest,
     background_tasks: BackgroundTasks,
-    manager: Annotated[ConnectorManager, Depends(get_manager)],
     store: Annotated[ItemStore, Depends(get_store)],
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
 ):
     """
-    Trigger a data sync from all (or specific) connectors.
+    Trigger a data sync from all (or specific) connectors this org has actually
+    configured.
 
     - **sources**: optional list to restrict which connectors run
     - **since_days**: how many days back to pull data (default 7)
+
+    Builds a fresh ConnectorManager scoped to this org for every request —
+    NEVER reuses/mutates the global connector_manager (application/deps.py).
+    That singleton is shared across all orgs and requests; writing org_id into
+    its connector configs previously "stuck" it to whichever org synced first,
+    leaking that org's Gmail/Slack data to every other org afterwards, and
+    pulled in mock-only sources (Teams, Outlook without real credentials)
+    that this org never connected.
     """
     since = datetime.utcnow() - timedelta(days=body.since_days)
 
-    # Inject org_id into per-org OAuth connectors so they load the right credentials
-    for connector in manager._connectors.values():
-        if not connector.config.get("org_id"):
-            connector.config["org_id"] = current_user.org_id
-            connector._authenticated = False  # force re-auth with correct org
+    db = SessionLocal()
+    try:
+        configured = {
+            row.source for row in db.query(SourceConfig.source)
+            .filter(SourceConfig.org_id == current_user.org_id).distinct().all()
+        }
+    finally:
+        db.close()
+
+    targets = [SourceType(s) for s in configured if s in SourceType._value2member_map_]
+    if body.sources:
+        targets = [s for s in body.sources if s in targets]
+
+    if not targets:
+        return SyncResponse(triggered_at=datetime.utcnow(), total_items_stored=store.count(), results=[])
+
+    manager = ConnectorManager(configs={
+        s: {"org_id": current_user.org_id, "use_mock": False} for s in targets
+    })
 
     results: list[SyncResult] = await manager.sync_all(
-        since=since, sources=body.sources
+        since=since, sources=targets
     )
 
     fetched_items = ConnectorManager.collect_items(results)
@@ -131,7 +153,7 @@ async def trigger_sync(
                 source: {"items": info["items"], "success": info["success"]}
                 for source, info in summary["by_source"].items()
             },
-        }))
+        }, org_id=current_user.org_id))
     except Exception:
         pass
 

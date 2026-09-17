@@ -54,20 +54,30 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         top_k         = int(arguments.get("top_k", 5))
         source_filter = arguments.get("source_filter")
 
-        try:
-            payload: dict = {"query": query, "top_k": top_k}
-            if source_filter:
-                payload["source_filter"] = source_filter
+        # org_id/since_date injectés par le backend juste avant l'appel —
+        # jamais laissés au LLM à fournir (cf. gmail_server.py, même incident).
+        org_id     = arguments.get("_org_id")
+        since_date = arguments.get("_since_date")
+        if not org_id:
+            result = {"error": "org_id manquant", "results": [], "count": 0}
+        else:
+            try:
+                payload: dict = {"query": query, "top_k": top_k, "org_id": org_id}
+                if source_filter:
+                    payload["source_filter"] = source_filter
+                if since_date:
+                    payload["since_date"] = since_date
 
-            async with httpx.AsyncClient(timeout=12.0) as client:
-                resp = await client.post(
-                    f"{BACKEND_URL}/api/search/rag",
-                    json=payload,
-                )
-                resp.raise_for_status()
-                result = resp.json()
-        except Exception as e:
-            result = {"error": str(e), "results": [], "count": 0}
+                async with httpx.AsyncClient(timeout=12.0) as client:
+                    resp = await client.post(
+                        f"{BACKEND_URL}/api/search/rag",
+                        json=payload,
+                        headers={"X-Internal-Secret": os.environ.get("ASK_INTERNAL_SECRET", "")},
+                    )
+                    resp.raise_for_status()
+                    result = resp.json()
+            except Exception as e:
+                result = {"error": str(e), "results": [], "count": 0}
     else:
         result = {"error": f"Unknown tool: {name}"}
 

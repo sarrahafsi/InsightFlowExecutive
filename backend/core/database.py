@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,   # reconnect if the connection was dropped
+    pool_size=10,
+    max_overflow=20,      # defaut (5+10=15) trop juste : polling frontend + jobs
+                          # planifies + syncs webhook ouvrent beaucoup de sessions
+                          # courtes en parallele (QueuePool timeout sinon)
     echo=False,
 )
 

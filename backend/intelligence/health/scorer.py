@@ -43,15 +43,17 @@ def _score_label(score: int) -> tuple[str, str]:
     return "Critique", "#ef4444"
 
 
-def _compute_dimensions(db, since: datetime, until: datetime) -> dict[str, float]:
+def _compute_dimensions(db, since: datetime, until: datetime, org_id: str | None = None) -> dict[str, float]:
     from core.models import MessageRaw, AnomalyEvent, Project
 
     # ── 1. Sentiment health ──────────────────────────────────────────────────
-    msgs = (
+    msgs_q = (
         db.query(MessageRaw.sentiment_label)
         .filter(MessageRaw.timestamp >= since, MessageRaw.timestamp < until)
-        .all()
     )
+    if org_id is not None:
+        msgs_q = msgs_q.filter(MessageRaw.org_id == org_id)
+    msgs = msgs_q.all()
     total = len(msgs)
     if total > 0:
         positive = sum(1 for m in msgs if (m.sentiment_label or "").lower() == "positive")
@@ -66,25 +68,29 @@ def _compute_dimensions(db, since: datetime, until: datetime) -> dict[str, float
 
     # ── 2. Anomaly health ────────────────────────────────────────────────────
     # Count DISTINCT sources with anomalies — prevents runaway penalty from daily reruns
-    anomalies = (
+    anomalies_q = (
         db.query(AnomalyEvent.source, AnomalyEvent.severity)
         .filter(AnomalyEvent.detected_at >= since, AnomalyEvent.detected_at < until)
-        .all()
     )
+    if org_id is not None:
+        anomalies_q = anomalies_q.filter(AnomalyEvent.org_id == org_id)
+    anomalies = anomalies_q.all()
     high_sources   = len({a.source for a in anomalies if a.severity == "high"})
     medium_sources = len({a.source for a in anomalies if a.severity == "medium"})
     anomaly_score = max(0.0, 100.0 - high_sources * 22.0 - medium_sources * 10.0)
 
     # ── 3. Burnout health ────────────────────────────────────────────────────
-    burnout_rows = (
+    burnout_q = (
         db.query(MessageRaw.burnout_score)
         .filter(
             MessageRaw.timestamp >= since,
             MessageRaw.timestamp < until,
             MessageRaw.burnout_score.isnot(None),
         )
-        .all()
     )
+    if org_id is not None:
+        burnout_q = burnout_q.filter(MessageRaw.org_id == org_id)
+    burnout_rows = burnout_q.all()
     if burnout_rows:
         avg_burnout = sum(r.burnout_score for r in burnout_rows) / len(burnout_rows)
         burnout_score = max(0.0, min(100.0, (1.0 - avg_burnout) * 100.0))
@@ -92,7 +98,10 @@ def _compute_dimensions(db, since: datetime, until: datetime) -> dict[str, float
         burnout_score = 70.0
 
     # ── 4. Project health ────────────────────────────────────────────────────
-    projects = db.query(Project.status, Project.risk_level, Project.blockers, Project.progress).all()
+    projects_q = db.query(Project.status, Project.risk_level, Project.blockers, Project.progress)
+    if org_id is not None:
+        projects_q = projects_q.filter(Project.org_id == org_id)
+    projects = projects_q.all()
     if projects:
         proj_scores = []
         for p in projects:
@@ -111,11 +120,13 @@ def _compute_dimensions(db, since: datetime, until: datetime) -> dict[str, float
 
     # ── 5. Communication health ──────────────────────────────────────────────
     if total > 0:
-        after_rows = (
+        after_q = (
             db.query(MessageRaw.is_after_hours)
             .filter(MessageRaw.timestamp >= since, MessageRaw.timestamp < until)
-            .all()
         )
+        if org_id is not None:
+            after_q = after_q.filter(MessageRaw.org_id == org_id)
+        after_rows = after_q.all()
         after_hours = sum(1 for m in after_rows if m.is_after_hours)
         after_pct = after_hours / total
         # 0% → 100, 50% → 50, 100% → 0  (linear — CEO naturally has after-hours emails)
@@ -132,7 +143,7 @@ def _compute_dimensions(db, since: datetime, until: datetime) -> dict[str, float
     }
 
 
-def _compute_sentiment_trend(db, since: datetime, until: datetime) -> dict:
+def _compute_sentiment_trend(db, since: datetime, until: datetime, org_id: str | None = None) -> dict:
     """
     Calcule la tendance du sentiment sur la fenêtre :
     compare les 3 premiers jours aux 3 derniers jours.
@@ -145,11 +156,13 @@ def _compute_sentiment_trend(db, since: datetime, until: datetime) -> dict:
     mid_date = since + timedelta(days=mid)
 
     def _avg_sentiment(start, end) -> float:
-        rows = (
+        rows_q = (
             db.query(MessageRaw.sentiment_label)
             .filter(MessageRaw.timestamp >= start, MessageRaw.timestamp < end)
-            .all()
         )
+        if org_id is not None:
+            rows_q = rows_q.filter(MessageRaw.org_id == org_id)
+        rows = rows_q.all()
         if not rows:
             return 0.5
         scores = []
@@ -173,13 +186,13 @@ def _compute_sentiment_trend(db, since: datetime, until: datetime) -> dict:
             "first_half": round(first_half, 3), "last_half": round(last_half, 3)}
 
 
-def compute_ohs(db, window_days: int = 7) -> dict[str, Any]:
+def compute_ohs(db, window_days: int = 7, org_id: str | None = None) -> dict[str, Any]:
     now    = datetime.utcnow()
     since  = now - timedelta(days=window_days)
     prev_s = now - timedelta(days=window_days * 2)
 
-    current_dims  = _compute_dimensions(db, since, now)
-    previous_dims = _compute_dimensions(db, prev_s, since)
+    current_dims  = _compute_dimensions(db, since, now, org_id)
+    previous_dims = _compute_dimensions(db, prev_s, since, org_id)
 
     def _weighted(dims: dict) -> float:
         return sum(dims[k] * WEIGHTS[k] for k in WEIGHTS)
@@ -189,7 +202,7 @@ def compute_ohs(db, window_days: int = 7) -> dict[str, Any]:
     trend = current_score - previous_score
 
     label, color = _score_label(current_score)
-    sentiment_trend = _compute_sentiment_trend(db, since, now)
+    sentiment_trend = _compute_sentiment_trend(db, since, now, org_id)
 
     breakdown = [
         {

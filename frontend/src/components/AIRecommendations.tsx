@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import API from "@/lib/api";
+import API, { isUpgradeRequired } from "@/lib/api";
 
 /* ── Type & priority metadata ───────────────────────────────────── */
 const TYPE_META: Record<string, { label: string; color: string; bg: string }> = {
@@ -175,15 +175,18 @@ export default function AIRecommendations({ sinceDays = 7 }: { sinceDays?: numbe
   const [result, setResult]   = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
+  const [locked, setLocked]   = useState(false);
 
   const generate = async () => {
     setLoading(true);
     setError(null);
+    setLocked(false);
     try {
       const r = await API.get(`/api/recommendations?since_days=${sinceDays}`);
       setResult(r.data);
     } catch (e: any) {
-      setError(e.message ?? "Erreur de génération");
+      if (isUpgradeRequired(e)) setLocked(true);
+      else setError(e.message ?? "Erreur de génération");
     } finally {
       setLoading(false);
     }
@@ -207,18 +210,24 @@ export default function AIRecommendations({ sinceDays = 7 }: { sinceDays?: numbe
       <div style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.6, maxWidth: 240, margin: "0 auto 18px" }}>
         L'IA analyse les patterns de vos messages et propose des agents adaptés à votre workflow.
       </div>
-      {error && (
-        <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 12 }}>{error}</div>
+      {locked ? (
+        <div style={{ fontSize: 11.5, color: "#9333ea", fontWeight: 600 }}>🔒 Fonctionnalité Pro — passez à un plan supérieur</div>
+      ) : (
+        <>
+          {error && (
+            <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 12 }}>{error}</div>
+          )}
+          <button onClick={generate} style={{
+            padding: "8px 20px", borderRadius: 10,
+            background: "#1d2d44",
+            color: "#f0ebd8", border: "none", cursor: "pointer",
+            fontSize: 12.5, fontWeight: 600, letterSpacing: "0.01em",
+            transition: "opacity 0.15s",
+          }}>
+            Analyser et proposer des agents
+          </button>
+        </>
       )}
-      <button onClick={generate} style={{
-        padding: "8px 20px", borderRadius: 10,
-        background: "#1d2d44",
-        color: "#f0ebd8", border: "none", cursor: "pointer",
-        fontSize: 12.5, fontWeight: 600, letterSpacing: "0.01em",
-        transition: "opacity 0.15s",
-      }}>
-        Analyser et proposer des agents
-      </button>
     </div>
   );
 

@@ -40,6 +40,23 @@ BUSINESS_LABELS = [
 _TRIGGER_SENTIMENTS = {"NEGATIVE"}
 _TRIGGER_EMOTIONS   = {"frustration", "concern", "urgency"}
 
+# Filet de sécurité : les modèles sentiment/émotion fine-tunés sont peu fiables
+# sur des messages très courts (hors distribution d'entraînement) et peuvent
+# manquer un message réellement urgent avant même qu'il atteigne le LLM. Ces
+# mots-clés forcent la consultation du LLM dans ce cas — ils ne remplacent
+# jamais le jugement sémantique du LLM, ils élargissent juste quand on le
+# consulte.
+_URGENCY_KEYWORDS = {
+    "urgent", "urgence", "critique", "critical", "asap", "immédiat", "immediate",
+    "right now", "priorité", "priority", "escalade", "escalation", "bloquant",
+    "deadline", "emergency", "blocked", "down", "crash", "panne", "incident",
+}
+
+
+def _has_urgency_keyword(item: EnrichedItem) -> bool:
+    text = f"{item.title} {item.content}".lower()
+    return any(kw in text for kw in _URGENCY_KEYWORDS)
+
 # Calendar / automated notification patterns → always Neutral Update, skip LLM
 _CALENDAR_PATTERNS = (
     "canceled", "cancelled", "declined", "accepted", "invitation",
@@ -69,7 +86,8 @@ Classify the message into EXACTLY ONE of these categories:
 IMPORTANT:
 - Consider the author, source, and timestamp as context
 - Return ONLY valid JSON, nothing else, no explanation outside JSON
-- confidence must be a float between 0.0 and 1.0"""
+- confidence must be a float between 0.0 and 1.0
+- "reason" must be written in the SAME language as the message content (the "label" itself stays one of the 8 English category names above)"""
 
 USER_TEMPLATE = """Classify this business communication:
 
@@ -119,6 +137,7 @@ class BusinessClassifier(BaseProcessor):
         return (
             item.sentiment_label in _TRIGGER_SENTIMENTS
             or item.emotion_label in _TRIGGER_EMOTIONS
+            or _has_urgency_keyword(item)
         )
 
     def process(self, item: EnrichedItem) -> EnrichedItem:

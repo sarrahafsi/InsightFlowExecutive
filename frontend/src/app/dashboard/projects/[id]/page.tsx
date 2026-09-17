@@ -92,6 +92,7 @@ export default function ProjectPage() {
   interface ProjectFile { id: number; filename: string; source: string; size_bytes: number; mime_type: string; uploaded_by: string; uploaded_at: string; }
   const [files, setFiles]         = useState<ProjectFile[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [dragOver, setDragOver]   = useState(false);
 
   // Members
@@ -99,6 +100,7 @@ export default function ProjectPage() {
   const [memberEmail, setMemberEmail] = useState("");
   const [memberRole,  setMemberRole]  = useState("member");
   const [addingMember, setAddingMember] = useState(false);
+  const [memberError, setMemberError]   = useState<string | null>(null);
 
   // OneDrive
   const [onedriveConnected, setOnedriveConnected] = useState(false);
@@ -132,9 +134,6 @@ export default function ProjectPage() {
   const [planSummary,   setPlanSummary]   = useState("");
   const [planAssignees, setPlanAssignees] = useState<Assignee[]>([]);
   const [loadingSummary,setLoadingSummary]= useState(false);
-  const [signals,       setSignals]       = useState<TaskSignal[]>([]);
-  const [loadingSignals,setLoadingSignals]= useState(false);
-  const [showSignals,   setShowSignals]   = useState(true);
 
   // Overview
   interface OverviewData {
@@ -195,7 +194,6 @@ export default function ProjectPage() {
     if (tab === "plans") {
       setLoadingTasks(true);
       setLoadingSummary(true);
-      setLoadingSignals(true);
       API.get(`/api/projects/${id}/clickup/tasks`)
         .then(r => setTasks(r.data))
         .catch(() => setTasks([]))
@@ -204,10 +202,6 @@ export default function ProjectPage() {
         .then(r => { setPlanStats(r.data.stats); setPlanSummary(r.data.summary); setPlanAssignees(r.data.assignees || []); })
         .catch(() => {})
         .finally(() => setLoadingSummary(false));
-      API.get(`/api/projects/${id}/clickup/signals`)
-        .then(r => setSignals(r.data))
-        .catch(() => setSignals([]))
-        .finally(() => setLoadingSignals(false));
     }
     if (tab === "teams") {
       setLoadingSlackMsgs(true);
@@ -233,15 +227,20 @@ export default function ProjectPage() {
 
   async function uploadFile(file: File) {
     setUploading(true);
+    setFileError(null);
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`http://localhost:8000/api/projects/${id}/files/upload`, { method: "POST", body: form });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setFiles(prev => [data, ...prev]);
+      const res = await API.post(`/api/projects/${id}/files/upload`, form);
+      setFiles(prev => [res.data, ...prev]);
       setProject(p => p ? { ...p, files_count: p.files_count + 1 } : p);
       setActivity(prev => [{ id: Date.now(), actor: "CEO", action: "uploaded_file", detail: file.name, created_at: new Date().toISOString() }, ...prev]);
+    } catch (e: any) {
+      setFileError(
+        e?.status === 401
+          ? "Session expirée — reconnecte-toi puis réessaie."
+          : "Échec de l'envoi du fichier. Réessaie."
+      );
     } finally {
       setUploading(false);
     }
@@ -257,11 +256,18 @@ export default function ProjectPage() {
   async function addMember() {
     if (!memberName.trim() || !memberEmail.trim()) return;
     setAddingMember(true);
+    setMemberError(null);
     try {
       const res = await API.post(`/api/projects/${id}/members`, { name: memberName, email: memberEmail, role: memberRole });
       setProject(p => p ? { ...p, members: [...p.members, res.data] } : p);
       setActivity(prev => [{ id: Date.now(), actor: "CEO", action: "added_member", detail: `${memberName} (${memberRole})`, created_at: new Date().toISOString() }, ...prev]);
       setMemberName(""); setMemberEmail(""); setMemberRole("member");
+    } catch (e: any) {
+      setMemberError(
+        e?.response?.status === 401
+          ? "Session expirée — reconnecte-toi puis réessaie."
+          : "Échec de l'ajout du membre. Réessaie."
+      );
     } finally {
       setAddingMember(false);
     }
@@ -526,7 +532,7 @@ export default function ProjectPage() {
                 <ProjectOHSCard projectId={id} />
 
                 {/* Stat cards */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.875rem" }}>
+                <div className="rf-grid-3-eq" style={{ gap: "0.875rem" }}>
                   {/* Tasks */}
                   <div style={{ background: "#fff", borderRadius: 14, border: "1px solid rgba(62,92,118,0.09)", padding: "1.1rem 1.25rem", boxShadow: "0 1px 6px rgba(13,19,33,0.04)" }}>
                     <div style={{ fontSize: 11, color: "#748cab", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6, fontFamily: "DM Sans, sans-serif" }}>
@@ -547,19 +553,6 @@ export default function ProjectPage() {
                         {locale === "fr" ? "ClickUp non lié" : "ClickUp not linked"}
                       </div>
                     )}
-                  </div>
-
-                  {/* Signals */}
-                  <div style={{ background: "#fff", borderRadius: 14, border: "1px solid rgba(62,92,118,0.09)", padding: "1.1rem 1.25rem", boxShadow: "0 1px 6px rgba(13,19,33,0.04)" }}>
-                    <div style={{ fontSize: 11, color: "#748cab", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6, fontFamily: "DM Sans, sans-serif" }}>
-                      {locale === "fr" ? "Signaux croisés" : "Cross Signals"}
-                    </div>
-                    <div style={{ fontSize: 26, fontWeight: 700, color: overview.signals_count > 0 ? "#f59e0b" : "#0d1321", fontFamily: "DM Serif Display, serif" }}>
-                      {overview.signals_count}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#748cab", marginTop: 4 }}>
-                      {locale === "fr" ? "messages liés aux tâches" : "messages linked to tasks"}
-                    </div>
                   </div>
 
                   {/* Slack mood */}
@@ -781,7 +774,7 @@ export default function ProjectPage() {
 
               {/* ── Stats cards ── */}
               {planStats && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+                <div className="rf-grid-4" style={{ gap: 10 }}>
                   {[
                     { label: locale === "fr" ? "Tâches" : "Tasks",      value: planStats.total,    icon: "📋", color: "#3e5c76",  sub: `${planStats.progress}% terminé` },
                     { label: locale === "fr" ? "Urgentes" : "Urgent",   value: planStats.urgent,   icon: "🔴", color: "#ef4444",  sub: locale === "fr" ? "en attente" : "pending" },
@@ -841,118 +834,6 @@ export default function ProjectPage() {
                 </div>
               )}
 
-              {/* ── Signaux croisés ── */}
-              <div style={{ background: "#fff", borderRadius: 14, border: "1px solid rgba(62,92,118,0.09)", overflow: "hidden" }}>
-                  <div
-                    onClick={() => setShowSignals(v => !v)}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", cursor: "pointer", borderBottom: showSignals ? "1px solid rgba(62,92,118,0.07)" : "none" }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 14 }}>🔗</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: "#0d1321" }}>
-                        {locale === "fr" ? "Signaux croisés" : "Cross Signals"}
-                      </span>
-                      {!loadingSignals && (() => {
-                        const total = signals.reduce((acc, s) => acc + s.signals.length, 0);
-                        return (
-                          <span style={{ fontSize: 11, background: total > 0 ? "rgba(62,92,118,0.08)" : "rgba(116,140,171,0.07)", color: total > 0 ? "#3e5c76" : "#a0b4c4", borderRadius: 10, padding: "1px 8px", fontWeight: 600 }}>
-                            {total > 0
-                              ? `${total} ${locale === "fr" ? "liens Gmail/Slack" : "Gmail/Slack links"}`
-                              : (locale === "fr" ? "Aucun signal" : "No signals")}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                    <span style={{ fontSize: 11, color: "#748cab" }}>{showSignals ? "▲" : "▼"}</span>
-                  </div>
-
-                  {showSignals && (
-                    <div>
-                      {loadingSignals ? (
-                        <div style={{ padding: "1rem", display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ width: 16, height: 16, border: "2px solid rgba(62,92,118,0.15)", borderTop: "2px solid #3e5c76", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                          <span style={{ fontSize: 12, color: "#748cab" }}>{locale === "fr" ? "Analyse des emails..." : "Analysing emails..."}</span>
-                        </div>
-                      ) : signals.length === 0 ? (
-                        <div style={{ padding: "1.25rem 1rem", textAlign: "center" }}>
-                          <p style={{ fontSize: 12, color: "#748cab", margin: "0 0 4px" }}>
-                            {locale === "fr"
-                              ? "Aucun signal trouvé — InsightFlow utilise la recherche sémantique pour relier tes emails Gmail et messages Slack à tes tâches ClickUp."
-                              : "No signals found — InsightFlow uses semantic search to link Gmail emails and Slack messages to your ClickUp tasks."}
-                          </p>
-                          <p style={{ fontSize: 11, color: "#a0b4c4", margin: 0 }}>
-                            {locale === "fr"
-                              ? "Les titres de tâches trop courts ou génériques (ex: 'Task 1') ne génèrent pas de match."
-                              : "Very short or generic task titles (e.g. 'Task 1') won't generate matches."}
-                          </p>
-                        </div>
-                      ) : signals.map((sig, si) => {
-                        const PRIORITY_COLOR: Record<string,string> = { Urgent:"#ef4444", High:"#f97316", Normal:"#3e5c76", Low:"#748cab" };
-                        return (
-                          <div key={sig.task_id} style={{ borderBottom: si < signals.length - 1 ? "1px solid rgba(62,92,118,0.06)" : "none" }}>
-                            {/* Task header */}
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px 6px", background: "rgba(62,92,118,0.02)" }}>
-                              <span style={{ fontSize: 11, fontWeight: 700, color: PRIORITY_COLOR[sig.priority] || "#3e5c76", background: `${PRIORITY_COLOR[sig.priority] || "#3e5c76"}14`, borderRadius: 5, padding: "1px 7px" }}>{sig.priority}</span>
-                              <span style={{ fontSize: 12, fontWeight: 600, color: "#0d1321", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>✅ {sig.task_title}</span>
-                              {sig.assignee && <span style={{ fontSize: 11, color: "#748cab" }}>👤 {sig.assignee}</span>}
-                            </div>
-                            {/* Linked messages */}
-                            {sig.signals.map((s, mi) => (
-                              <div key={s.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 16px 8px 28px", borderTop: "1px solid rgba(62,92,118,0.04)" }}>
-                                <span style={{ fontSize: 14, flexShrink: 0 }}>{s.icon}</span>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontSize: 12, fontWeight: 600, color: "#0d1321", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                    {s.url ? <a href={s.url} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>{s.title}</a> : s.title}
-                                  </div>
-                                  {s.excerpt && s.excerpt !== s.title && (
-                                    <div style={{ fontSize: 12, color: "#374151", marginTop: 3, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                                      {s.excerpt}
-                                    </div>
-                                  )}
-                                  <div style={{ fontSize: 11, color: "#a0b4c4", display: "flex", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
-                                    <span>👤 {s.author}</span>
-                                    <span>{new Date(s.date).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "short" })}</span>
-                                    {s.sentiment && (() => {
-                                      const SENT_COLOR: Record<string,string> = { positive: "#16a34a", negative: "#ef4444", neutral: "#748cab" };
-                                      const SENT_LABEL: Record<string,string> = { positive: "😊 positif", negative: "😟 négatif", neutral: "😐 neutre" };
-                                      const EMOTION_ICON: Record<string,string> = {
-                                        joy: "😄", anger: "😡", sadness: "😢", fear: "😨",
-                                        surprise: "😲", disgust: "🤢", love: "❤️", neutral: "😐",
-                                        joie: "😄", colère: "😡", tristesse: "😢", peur: "😨",
-                                      };
-                                      return (
-                                        <>
-                                          <span style={{ color: SENT_COLOR[s.sentiment.toLowerCase()] || "#748cab", fontWeight: 600 }}>
-                                            {SENT_LABEL[s.sentiment.toLowerCase()] || s.sentiment}
-                                          </span>
-                                          {s.emotion && s.emotion.toLowerCase() !== "neutral" && s.emotion.toLowerCase() !== s.sentiment.toLowerCase() && (
-                                            <span style={{ color: "#748cab" }}>
-                                              {EMOTION_ICON[s.emotion.toLowerCase()] || "💭"} {s.emotion}
-                                            </span>
-                                          )}
-                                        </>
-                                      );
-                                    })()}
-                                    {s.match_type === "semantic" && s.rag_distance !== undefined && (
-                                      <span style={{
-                                        fontSize: 10, fontWeight: 600,
-                                        color: "#6366f1",
-                                        background: "rgba(99,102,241,0.08)",
-                                        borderRadius: 4, padding: "1px 6px",
-                                      }}>
-                                        🔮 {locale === "fr" ? "sémantique" : "semantic"} {Math.round((1 - s.rag_distance / 2) * 100)}%
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-              </div>
 
               {/* ── Header (list name + filters) ── */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1207,6 +1088,12 @@ export default function ProjectPage() {
               )}
             </div>
 
+            {fileError && (
+              <div style={{ fontSize: 12, color: "#ef4444" }}>
+                {fileError}
+              </div>
+            )}
+
             {/* Files list */}
             {files.length === 0 ? (
               <p style={{ fontSize: 13, color: "#748cab", textAlign: "center", padding: "1rem" }}>{t.proj_file_empty}</p>
@@ -1242,7 +1129,7 @@ export default function ProjectPage() {
               </h3>
 
               {/* Add member form */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 8, marginBottom: "1rem", alignItems: "center" }}>
+              <div className="rf-form-row" style={{ marginBottom: "1rem", alignItems: "center" }}>
                 <input value={memberName} onChange={e => setMemberName(e.target.value)} placeholder={t.proj_member_name_ph}
                   style={{ padding: "8px 12px", border: "1.5px solid rgba(62,92,118,0.18)", borderRadius: 8, fontSize: 13, fontFamily: "DM Sans, sans-serif", outline: "none" }} />
                 <input value={memberEmail} onChange={e => setMemberEmail(e.target.value)} placeholder={t.proj_member_email_ph} type="email"
@@ -1258,6 +1145,12 @@ export default function ProjectPage() {
                   {addingMember ? "..." : "+ " + t.proj_member_add}
                 </button>
               </div>
+
+              {memberError && (
+                <div style={{ fontSize: 12, color: "#ef4444", marginBottom: "0.75rem" }}>
+                  {memberError}
+                </div>
+              )}
 
               {/* Members list */}
               {project.members.length === 0 ? (

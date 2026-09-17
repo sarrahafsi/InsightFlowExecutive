@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from application.deps import get_store
 from core.config import settings
 from core.models import User
-from core.security import get_current_user
+from core.security import get_current_org_user
 from core.store import ItemStore
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/emails", tags=["emails"])
 async def generate_draft(
     item_id: str,
     store: Annotated[ItemStore, Depends(get_store)],
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_org_user),
 ):
     """
     Génère un brouillon de réponse pour un email en utilisant Ollama.
@@ -126,17 +126,18 @@ async def send_email(
     body:      str            = Form(...),
     thread_id: str | None     = Form(None),
     files:     list[UploadFile] = File(default=[]),
+    current_user: User = Depends(get_current_org_user),
 ):
     """
-    Envoie un email via Gmail API avec pièces jointes optionnelles.
-    Accepte multipart/form-data.
+    Envoie un email via Gmail API (identifiants de l'org de l'utilisateur connecté)
+    avec pièces jointes optionnelles. Accepte multipart/form-data.
     """
     try:
         from application.routes.auth import get_gmail_credentials
         from googleapiclient.discovery import build
         from integrations.connectors.gmail import GmailConnector
 
-        creds = get_gmail_credentials()
+        creds = get_gmail_credentials(current_user.org_id)
         if not creds or not creds.valid:
             raise HTTPException(
                 status_code=401,

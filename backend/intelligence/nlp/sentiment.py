@@ -1,11 +1,4 @@
-"""
-Sentiment Processor — Fine-tuned XLM-RoBERTa
-Détecte le sentiment général : POSITIVE / NEGATIVE / NEUTRAL
 
-Modèle : insightflow-sentiment-xlm-v1 (fine-tuné sur dataset InsightFlow)
-  eval_accuracy=0.991, eval_f1_macro=0.991
-  Fallback : cardiffnlp/twitter-xlm-roberta-base-sentiment (HuggingFace)
-"""
 from __future__ import annotations
 import logging
 import os
@@ -13,6 +6,7 @@ from functools import lru_cache
 from typing import Optional
 
 from .base import BaseProcessor, EnrichedItem
+from ._model_lock import MODEL_LOAD_LOCK
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +21,23 @@ MAX_LENGTH = 512
 
 @lru_cache(maxsize=1)
 def _load_pipeline():
-    """Lazy-load du modèle — chargé une seule fois en mémoire."""
-    from transformers import pipeline
-    source = "local" if os.path.isdir(_LOCAL_MODEL) else "HuggingFace"
-    logger.info("[NLP/Sentiment] Loading model (%s): %s", source, SENTIMENT_MODEL)
-    return pipeline(
-        "sentiment-analysis",
-        model=SENTIMENT_MODEL,
-        truncation=True,
-        max_length=MAX_LENGTH,
-    )
+    """Lazy-load du modèle — chargé une seule fois en mémoire.
+
+    Verrou global (MODEL_LOAD_LOCK) : plusieurs jobs tournent en parallele
+    (sync periodique, enrichissement NLP, realtime loop) et peuvent tous
+    declencher ce premier chargement en meme temps — sans lock, deux threads
+    important `transformers` simultanement corrompent l'import (cf.
+    _model_lock.py)."""
+    with MODEL_LOAD_LOCK:
+        from transformers import pipeline
+        source = "local" if os.path.isdir(_LOCAL_MODEL) else "HuggingFace"
+        logger.info("[NLP/Sentiment] Loading model (%s): %s", source, SENTIMENT_MODEL)
+        return pipeline(
+            "sentiment-analysis",
+            model=SENTIMENT_MODEL,
+            truncation=True,
+            max_length=MAX_LENGTH,
+        )
 
 
 # Mapping labels — le modèle fine-tuné retourne directement NEGATIVE/NEUTRAL/POSITIVE

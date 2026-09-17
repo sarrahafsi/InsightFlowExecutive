@@ -19,6 +19,7 @@ from typing import Optional
 import numpy as np
 
 from .base import BaseProcessor, EnrichedItem
+from ._model_lock import MODEL_LOAD_LOCK
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,23 @@ LABELS = ["frustration", "concern", "urgency", "neutral", "satisfaction"]
 # Seuil de confiance calibrée — en dessous → Ollama prend le relais
 CONFIDENCE_THRESHOLD = 0.38
 
+# Filet de sécurité (même liste que intelligence/nlp/business.py) : le modèle
+# fine-tuné peut être confiant à tort sur un texte court/hors distribution
+# d'entraînement (ex: "urgency" raté avec 98% de confiance sur "meet right
+# now !"). Si un mot-clé d'urgence est présent et que le modèle n'a PAS déjà
+# conclu à "urgency", on force l'arbitrage Ollama même au-dessus du seuil —
+# on ne force jamais le label directement, on élargit juste quand on laisse
+# le LLM (plus nuancé) trancher.
+_URGENCY_KEYWORDS = {
+    "urgent", "urgence", "critique", "critical", "asap", "immédiat", "immediate",
+    "right now", "priorité", "priority", "escalade", "escalation", "bloquant",
+    "deadline", "emergency", "blocked", "down", "crash", "panne", "incident",
+}
+
+
+def _has_urgency_keyword(text: str) -> bool:
+    return any(kw in text.lower() for kw in _URGENCY_KEYWORDS)
+
 # Mapping remote fallback (MilaNLProc/xlm-emo-t) → labels business
 # Utilisé uniquement si le modèle local fine-tuné n'existe pas encore
 # xlm-emo-t labels : anger | fear | joy | sadness
@@ -52,16 +70,25 @@ _FINE_TUNED_LABELS = set(LABELS)
 
 @lru_cache(maxsize=1)
 def _load_pipeline():
-    from transformers import pipeline
-    source = "local" if os.path.isdir(_LOCAL_MODEL) else "HuggingFace"
-    logger.info("[NLP/Emotion] Loading model (%s): %s", source, EMOTION_MODEL)
-    return pipeline(
-        "text-classification",
-        model=EMOTION_MODEL,
-        truncation=True,
-        max_length=MAX_LENGTH,
-        top_k=None,
-    )
+    # Verrou global (cf. _model_lock.py) : plusieurs jobs paralleles peuvent
+    # tous declencher ce premier chargement en meme temps.
+    with MODEL_LOAD_LOCK:
+        from transformers import pipeline
+        source = "local" if os.path.isdir(_LOCAL_MODEL) else "HuggingFace"
+        logger.info("[NLP/Emotion] Loading model (%s): %s", source, EMOTION_MODEL)
+        return pipeline(
+            "text-classification",
+            model=EMOTION_MODEL,
+            truncation=True,
+            max_length=MAX_LENGTH,
+            top_k=None,
+            # XLM-RoBERTa a un buffer interne (position_ids) absent du checkpoint —
+            # le chargement rapide (low_cpu_mem_usage, defaut avec accelerate installe)
+            # le laisse parfois sur le device "meta" au lieu du CPU ("Tensor on device
+            # meta is not on the expected device cpu"). Chargement classique = pas de
+            # ce risque, cout negligeable pour un modele de cette taille (~1Go).
+            model_kwargs={"low_cpu_mem_usage": False},
+        )
 
 
 # ── Niveau 2 : Temperature Scaling ───────────────────────────────────────────
@@ -195,8 +222,12 @@ def _classify(text: str, sentiment_label: str = "") -> Optional[dict]:
             best_label, best_score, T,
         )
 
-        # ── Niveau 3 : Ollama si score < seuil ───────────────
-        if best_score < CONFIDENCE_THRESHOLD:
+        # ── Niveau 3 : Ollama si score < seuil, OU si un mot-clé d'urgence
+        #    a été manqué par le modèle (filet de sécurité) ──────────────
+        needs_arbitration = best_score < CONFIDENCE_THRESHOLD or (
+            best_label != "urgency" and _has_urgency_keyword(text)
+        )
+        if needs_arbitration:
             ollama_label = _ollama_emotion(text, sentiment_label, calibrated)
             if ollama_label:
                 return {"label": ollama_label, "score": best_score}

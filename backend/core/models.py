@@ -8,6 +8,7 @@ Tables : organisations · users
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from uuid import uuid4
 
@@ -17,10 +18,57 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy.types import TypeDecorator
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class EncryptedJSON(TypeDecorator):
+    """
+    JSON dict stored as Fernet-encrypted text — transparent to callers (they get/set
+    a plain dict, same as JSONB). Used for columns holding OAuth tokens / API keys,
+    where the DB backup or a leaked dump must not hand out usable credentials.
+    """
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        from core.crypto import encrypt_str
+        return encrypt_str(json.dumps(value))
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        from core.crypto import decrypt_str
+        return json.loads(decrypt_str(value))
+
+
+class EncryptedText(TypeDecorator):
+    """
+    Plain string stored as Fernet-encrypted text — transparent to callers (they
+    get/set a plain str, same as Text). Used for MessageRaw.title/content: the
+    actual body of ingested emails/messages/tickets, which is the customer's
+    business data (often personal data) and must not be readable from a DB
+    backup or a leaked dump.
+    """
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        from core.crypto import encrypt_str
+        return encrypt_str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        from core.crypto import decrypt_str
+        return decrypt_str(value)
 
 
 # ── Organisation (tenant = client) ────────────────────────────────────────────
@@ -28,10 +76,19 @@ class Base(DeclarativeBase):
 class Organisation(Base):
     __tablename__ = "organisations"
 
-    id         = Column(String(36),  primary_key=True, default=lambda: str(uuid4()))
-    name       = Column(String(255), nullable=False)
-    plan       = Column(String(50),  default="free")   # free | pro | enterprise
-    created_at = Column(TIMESTAMP,   default=datetime.utcnow)
+    id           = Column(String(36),  primary_key=True, default=lambda: str(uuid4()))
+    name         = Column(String(255), nullable=False)
+    plan         = Column(String(50),  default="free")   # free | pro | enterprise
+    sector       = Column(String(100), nullable=True)
+    company_size = Column(String(50),  nullable=True)
+    country      = Column(String(100), nullable=True)
+    website      = Column(String(255), nullable=True)
+    created_at   = Column(TIMESTAMP,   default=datetime.utcnow)
+
+    # Si True, les corrections humaines de cette org alimentent le dataset
+    # de fine-tuning du modèle NLP partagé (continuous learning). Contrôlé
+    # par le CEO dans ses propres paramètres — jamais activé par la plateforme.
+    contributes_to_shared_training = Column(Boolean, nullable=False, default=True)
 
     users       = relationship("User",         back_populates="organisation", passive_deletes=True)
     projects    = relationship("Project",      back_populates="organisation", passive_deletes=True)
@@ -47,8 +104,9 @@ class MessageRaw(Base):
     author              = Column(String(255))
     author_email        = Column(String(255))
     timestamp           = Column(TIMESTAMP,    nullable=False)
-    title               = Column(Text)
-    content             = Column(Text)
+    # corps du message — chiffré au repos (voir EncryptedText)
+    title               = Column(EncryptedText)
+    content             = Column(EncryptedText)
     item_type           = Column(String(50))
     tags                = Column(ARRAY(Text))
     thread_id           = Column(String(255))
@@ -143,7 +201,7 @@ class SourceConfig(Base):
     id           = Column(Integer,     primary_key=True, autoincrement=True)
     org_id       = Column(String(36),  ForeignKey("organisations.id", ondelete="CASCADE"), nullable=True)
     source       = Column(String(50),  nullable=False)
-    config       = Column(JSONB,       nullable=False, default=dict)
+    config       = Column(EncryptedJSON, nullable=False, default=dict)  # OAuth tokens / API keys — encrypted at rest
     connected_at = Column(TIMESTAMP,   default=datetime.utcnow)
 
     organisation = relationship("Organisation", back_populates="source_cfgs")
@@ -263,14 +321,17 @@ class ProjectActivity(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id              = Column(Integer,     primary_key=True, autoincrement=True)
-    org_id          = Column(String(36),  ForeignKey("organisations.id", ondelete="SET NULL"), nullable=True)
-    email           = Column(String(255), nullable=False, unique=True)
-    full_name       = Column(String(255), nullable=False)
-    hashed_password = Column(String(255), nullable=False)
-    role            = Column(String(20),  default="pm")   # superadmin | ceo | pm
-    is_active       = Column(Boolean,     default=True)
-    created_at      = Column(TIMESTAMP,   default=datetime.utcnow)
+    id                            = Column(Integer,     primary_key=True, autoincrement=True)
+    org_id                        = Column(String(36),  ForeignKey("organisations.id", ondelete="SET NULL"), nullable=True)
+    email                         = Column(String(255), nullable=False, unique=True)
+    full_name                     = Column(String(255), nullable=False)
+    hashed_password               = Column(String(255), nullable=False)
+    role                          = Column(String(20),  default="ceo")   # superadmin | ceo
+    is_active                     = Column(Boolean,     default=True)
+    email_verified                = Column(Boolean,     default=True)   # register() met explicitement False
+    verification_token            = Column(String(64),  nullable=True)
+    verification_token_expires_at = Column(TIMESTAMP,   nullable=True)
+    created_at                    = Column(TIMESTAMP,   default=datetime.utcnow)
 
     organisation = relationship("Organisation", back_populates="users")
 
@@ -290,3 +351,20 @@ class AnomalyEvent(Base):
     detected_at     = Column(TIMESTAMP,   default=datetime.utcnow)
     window_days     = Column(Integer,     default=7)        # fenêtre d'observation utilisée
     is_read         = Column(Boolean,     default=False)
+
+
+class DemoRequest(Base):
+    """Lead commercial — formulaire public /request-demo. Indépendant du signup produit."""
+    __tablename__ = "demo_requests"
+
+    id           = Column(Integer,     primary_key=True, autoincrement=True)
+    first_name   = Column(String(100), nullable=False)
+    last_name    = Column(String(100), nullable=False)
+    email        = Column(String(255), nullable=False)
+    company      = Column(String(255), nullable=False)
+    job_title    = Column(String(150), nullable=True)
+    company_size = Column(String(50),  nullable=True)
+    sources      = Column(JSONB,       nullable=True)   # ["gmail", "outlook", ...]
+    message      = Column(Text,        nullable=True)
+    status       = Column(String(20),  default="NEW")   # NEW | CONTACTED | DEMO_SCHEDULED | CLOSED
+    created_at   = Column(TIMESTAMP,   default=datetime.utcnow)

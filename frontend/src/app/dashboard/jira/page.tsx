@@ -105,7 +105,7 @@ function TabOverview({ data }: { data: any }) {
         </div>
       </Section>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1.5rem" }}>
+      <div className="rf-grid-3-eq" style={{ gap: "1.5rem" }}>
         <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(62,92,118,0.1)" }}>
           <div style={{ fontSize: 12, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500, marginBottom: 16 }}>Issues par statut</div>
           {statusData.length > 0
@@ -161,7 +161,7 @@ function TabFlow({ data }: { data: any }) {
         </div>
       </Section>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
+      <div className="rf-grid-2" style={{ gap: "1.5rem" }}>
         <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(62,92,118,0.1)" }}>
           <div style={{ fontSize: 12, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500, marginBottom: 16 }}>Activité (7 jours)</div>
           <BarChart data={byDayData} height={140} color={JIRA_COLOR} />
@@ -226,7 +226,7 @@ function TabQuality({ data }: { data: any }) {
         </div>
       </Section>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
+      <div className="rf-grid-2" style={{ gap: "1.5rem", marginBottom: "1.5rem" }}>
         <div style={{ background: "#fff", borderRadius: 16, padding: "1.5rem", boxShadow: "0 2px 12px rgba(13,19,33,0.06)", border: "1px solid rgba(62,92,118,0.1)" }}>
           <div style={{ fontSize: 12, color: "#748cab", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500, marginBottom: 16 }}>Bugs vs Features vs Tasks</div>
           <DonutChart data={typeDist.map((t: any) => ({ label: t.type, value: t.count, color: t.color }))} size={130} label="issues" />

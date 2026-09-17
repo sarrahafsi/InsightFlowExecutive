@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 
 from core.database import SessionLocal
-from core.models import HumanCorrection
+from core.models import HumanCorrection, MessageRaw, Organisation
 
 router = APIRouter(prefix="/ml", tags=["ml"])
 
@@ -42,28 +42,39 @@ class RetrainRequest(BaseModel):
 # ── Helpers ────────────────────────────────────────────────────────────
 
 def _count_corrections() -> dict:
-    """Compte les corrections en attente dans PostgreSQL."""
+    """
+    Compte les corrections en attente dans PostgreSQL, restreintes aux
+    organisations ayant consenti à contribuer au modèle partagé
+    (Organisation.contributes_to_shared_training).
+    """
     db = SessionLocal()
     try:
-        q = db.query(
-            func.count(HumanCorrection.id).filter(
-                HumanCorrection.corrected_sentiment.isnot(None),
-                HumanCorrection.used_in_training.is_(False),
-            ).label("sentiment"),
-            func.count(HumanCorrection.id).filter(
-                HumanCorrection.corrected_emotion.isnot(None),
-                HumanCorrection.used_in_training.is_(False),
-            ).label("emotion"),
-            func.count(HumanCorrection.id).filter(
-                HumanCorrection.corrected_business.isnot(None),
-                HumanCorrection.used_in_training.is_(False),
-            ).label("business"),
-            func.count(HumanCorrection.id).filter(
-                HumanCorrection.used_in_training.is_(False),
-            ).label("total_pending"),
-            func.count(HumanCorrection.id).label("total_all"),
-            func.max(HumanCorrection.corrected_at).label("last_correction_at"),
-        ).one()
+        q = (
+            db.query(
+                func.count(HumanCorrection.id).filter(
+                    HumanCorrection.corrected_sentiment.isnot(None),
+                    HumanCorrection.used_in_training.is_(False),
+                ).label("sentiment"),
+                func.count(HumanCorrection.id).filter(
+                    HumanCorrection.corrected_emotion.isnot(None),
+                    HumanCorrection.used_in_training.is_(False),
+                ).label("emotion"),
+                func.count(HumanCorrection.id).filter(
+                    HumanCorrection.corrected_business.isnot(None),
+                    HumanCorrection.used_in_training.is_(False),
+                ).label("business"),
+                func.count(HumanCorrection.id).filter(
+                    HumanCorrection.used_in_training.is_(False),
+                ).label("total_pending"),
+                func.count(HumanCorrection.id).label("total_all"),
+                func.max(HumanCorrection.corrected_at).label("last_correction_at"),
+            )
+            .select_from(HumanCorrection)
+            .join(MessageRaw, MessageRaw.id == HumanCorrection.message_id)
+            .join(Organisation, Organisation.id == MessageRaw.org_id)
+            .filter(Organisation.contributes_to_shared_training.is_(True))
+            .one()
+        )
         return {
             "sentiment":          q.sentiment,
             "emotion":            q.emotion,
@@ -289,7 +300,7 @@ async def scheduler_status():
     activé/désactivé, prochain run, dernier run, résultat.
     """
     try:
-        from ml_scheduler import get_scheduler_status
+        from core.ml_scheduler import get_scheduler_status
         return get_scheduler_status()
     except ImportError as e:
         raise HTTPException(status_code=503, detail=f"Scheduler introuvable : {e}")
@@ -303,7 +314,7 @@ async def trigger_auto_retrain(background_tasks: BackgroundTasks):
     Utile pour tester ou forcer une vérification manuelle.
     """
     try:
-        from ml_scheduler import auto_retrain_job
+        from core.ml_scheduler import auto_retrain_job
         background_tasks.add_task(auto_retrain_job)
         return {
             "status":  "triggered",

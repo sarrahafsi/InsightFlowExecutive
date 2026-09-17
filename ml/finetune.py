@@ -152,6 +152,32 @@ def split_dataset(texts, labels, test_size=0.2):
     )
 
 
+def measure_inference_speed(model, tokenizer, texts, n_samples=50):
+    """
+    Mesure le temps d'inference moyen (ms/sample), meme methode que ml/benchmark.py,
+    pour pouvoir comparer directement le modele fine-tune au modele de base.
+    """
+    import time
+    import torch
+
+    model.eval()
+    device = model.device
+    sample = texts[:n_samples] if len(texts) >= n_samples else texts
+
+    with torch.no_grad():
+        # Warmup (le premier appel est plus lent, on ne le compte pas)
+        warmup_inputs = tokenizer(sample[0], return_tensors="pt", truncation=True, max_length=128).to(device)
+        model(**warmup_inputs)
+
+        start = time.time()
+        for text in sample:
+            inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=128).to(device)
+            model(**inputs)
+        elapsed = time.time() - start
+
+    return (elapsed / len(sample)) * 1000
+
+
 # ── Fine-tuning ───────────────────────────────────────────────
 
 def finetune(model_key: str, lang: str, task: str = "sentiment"):
@@ -279,21 +305,27 @@ def finetune(model_key: str, lang: str, task: str = "sentiment"):
     print(f"  Accuracy : {results['eval_accuracy']*100:.2f}%")
     print(f"  F1-macro : {results['eval_f1_macro']*100:.2f}%")
 
+    # ── Inference speed (comparable a ml/benchmark.py) ─────────
+    speed_ms = measure_inference_speed(model, tokenizer, X_test)
+    print(f"  Speed    : {speed_ms:.2f} ms/sample ({'GPU' if use_gpu else 'CPU'})")
+
     # ── Save model ────────────────────────────────────────────
     trainer.save_model(output_dir)
     tokenizer.save_pretrained(output_dir)
 
     # Save results summary
     summary = {
-        "model_base":    model_name,
-        "model_name":    output_name,
-        "language":      lang,
-        "dataset_size":  len(texts),
-        "train_size":    len(X_train),
-        "test_size":     len(X_test),
-        "eval_accuracy": results["eval_accuracy"],
-        "eval_f1_macro": results["eval_f1_macro"],
-        "trained_at":    datetime.utcnow().isoformat(),
+        "model_base":              model_name,
+        "model_name":              output_name,
+        "language":                lang,
+        "dataset_size":            len(texts),
+        "train_size":              len(X_train),
+        "test_size":               len(X_test),
+        "eval_accuracy":           results["eval_accuracy"],
+        "eval_f1_macro":           results["eval_f1_macro"],
+        "inference_speed_ms":      round(speed_ms, 3),
+        "inference_device":        "GPU" if use_gpu else "CPU",
+        "trained_at":              datetime.utcnow().isoformat(),
     }
     import json
     with open(os.path.join(output_dir, "training_summary.json"), "w") as f:
@@ -419,21 +451,27 @@ def finetune_emotion(lang: str = "full"):
     print(f"\n  Accuracy : {results['eval_accuracy']*100:.2f}%")
     print(f"  F1-macro : {results['eval_f1_macro']*100:.2f}%")
 
+    # ── Inference speed (comparable a ml/benchmark_emotion.py) ─
+    speed_ms = measure_inference_speed(model, tokenizer, X_test)
+    print(f"  Speed    : {speed_ms:.2f} ms/sample ({'GPU' if use_gpu else 'CPU'})")
+
     trainer.save_model(output_dir)
     tokenizer.save_pretrained(output_dir)
 
     import json
     summary = {
-        "model_base":    EMOTION_MODEL,
-        "model_name":    output_name,
-        "task":          "emotion",
-        "language":      lang,
-        "dataset_size":  len(texts),
-        "train_size":    len(X_train),
-        "test_size":     len(X_test),
-        "eval_accuracy": results["eval_accuracy"],
-        "eval_f1_macro": results["eval_f1_macro"],
-        "trained_at":    datetime.utcnow().isoformat(),
+        "model_base":         EMOTION_MODEL,
+        "model_name":         output_name,
+        "task":               "emotion",
+        "language":           lang,
+        "dataset_size":       len(texts),
+        "train_size":         len(X_train),
+        "test_size":          len(X_test),
+        "eval_accuracy":      results["eval_accuracy"],
+        "eval_f1_macro":      results["eval_f1_macro"],
+        "inference_speed_ms": round(speed_ms, 3),
+        "inference_device":   "GPU" if use_gpu else "CPU",
+        "trained_at":         datetime.utcnow().isoformat(),
     }
     with open(os.path.join(output_dir, "training_summary.json"), "w") as f:
         json.dump(summary, f, indent=2)

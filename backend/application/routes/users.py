@@ -1,27 +1,29 @@
 """
-User authentication + management endpoints.
+User authentication endpoints.
 
-POST /auth/login          — email + password → JWT token
-POST /auth/register       — create a new organisation + CEO account
-GET  /auth/me             — current user profile
-PUT  /auth/me/password    — change own password
-
-GET    /users             — list org users (ceo only)
-POST   /users             — create PM in same org (ceo only)
-PUT    /users/{id}/role   — change a user's role (ceo only)
-DELETE /users/{id}        — deactivate a user (ceo only)
+POST /auth/login               — email + password → JWT token
+POST /auth/register             — create account (no org yet, email unverified)
+POST /auth/verify-email         — confirm email via token, unlocks org creation
+POST /auth/resend-verification  — regenerate + resend the verification email
+POST /organisations             — create the user's organisation (once, post-verification)
+GET  /auth/me                   — current user profile
+PUT  /auth/me/password          — change own password
 """
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.database import get_db
+from core.email import generate_verification_token, send_verification_email
+from core.email_verification import verify_email_exists
 from core.models import Organisation, User
+from core.plans import PLAN_FEATURES
 from core.security import (
     create_access_token,
+    get_current_org_user,
     get_current_user,
     hash_password,
     require_ceo,
@@ -30,8 +32,6 @@ from core.security import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["users"])
-
-VALID_ROLES = {"ceo", "pm"}
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -45,14 +45,6 @@ class RegisterRequest(BaseModel):
     email: str
     full_name: str
     password: str
-    org_name: str
-
-
-class CreateUserRequest(BaseModel):
-    email: str
-    full_name: str
-    password: str
-    role: str = "pm"
 
 
 class ChangePasswordRequest(BaseModel):
@@ -60,19 +52,30 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
-class ChangeRoleRequest(BaseModel):
-    role: str
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class CreateOrganisationRequest(BaseModel):
+    name: str
+    plan: str = "free"
+    sector: str | None = None
+    company_size: str | None = None
+    country: str | None = None
+    website: str | None = None
 
 
 def _user_out(u: User) -> dict:
     return {
-        "id":         u.id,
-        "email":      u.email,
-        "full_name":  u.full_name,
-        "role":       u.role,
-        "org_id":     u.org_id,
-        "is_active":  u.is_active,
-        "created_at": u.created_at.isoformat() if u.created_at else None,
+        "id":             u.id,
+        "email":          u.email,
+        "full_name":      u.full_name,
+        "role":           u.role,
+        "org_id":         u.org_id,
+        "org_plan":       u.organisation.plan if u.organisation else "free",
+        "is_active":      u.is_active,
+        "email_verified": u.email_verified,
+        "created_at":     u.created_at.isoformat() if u.created_at else None,
     }
 
 
@@ -95,32 +98,71 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 
 @router.post("/auth/register", status_code=201)
 def register(body: RegisterRequest, db: Session = Depends(get_db)):
-    """Create a new organisation and its CEO account in a single transaction."""
-    if len(body.org_name.strip()) < 2:
-        raise HTTPException(status_code=422, detail="Le nom de l'organisation est trop court.")
+    """Create the account. No organisation yet, email unverified — see /auth/verify-email and /organisations."""
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=409, detail="Email déjà utilisé.")
     if len(body.password) < 6:
         raise HTTPException(status_code=422, detail="Le mot de passe doit faire au moins 6 caractères.")
 
-    org = Organisation(name=body.org_name.strip())
-    db.add(org)
-    db.flush()  # get org.id without committing
+    is_valid, reason = verify_email_exists(body.email)
+    if not is_valid:
+        raise HTTPException(status_code=422, detail=reason or "Cette adresse email semble invalide.")
 
+    token, expires_at = generate_verification_token()
     user = User(
         email=body.email,
         full_name=body.full_name,
         hashed_password=hash_password(body.password),
         role="ceo",
-        org_id=org.id,
+        org_id=None,
+        email_verified=False,
+        verification_token=token,
+        verification_token_expires_at=expires_at,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
-    logger.info("[auth] new org '%s' created, CEO: %s", org.name, user.email)
+    logger.info("[auth] new account (unverified): %s", user.email)
 
-    token = create_access_token(user.id, user.role)
-    return {"access_token": token, "token_type": "bearer", "user": _user_out(user)}
+    send_verification_email(user.email, user.full_name, token)
+
+    access_token = create_access_token(user.id, user.role)
+    return {"access_token": access_token, "token_type": "bearer", "user": _user_out(user)}
+
+
+@router.post("/auth/verify-email")
+def verify_email(body: VerifyEmailRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.verification_token == body.token).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Lien de vérification invalide.")
+    if not user.verification_token_expires_at or user.verification_token_expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Lien de vérification expiré — demandez-en un nouveau.")
+
+    user.email_verified = True
+    user.verification_token = None
+    user.verification_token_expires_at = None
+    db.commit()
+    db.refresh(user)
+    logger.info("[auth] email verified: %s", user.email)
+    return _user_out(user)
+
+
+@router.post("/auth/resend-verification")
+def resend_verification(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.email_verified:
+        return {"status": "already_verified"}
+
+    token, expires_at = generate_verification_token()
+    current_user.verification_token = token
+    current_user.verification_token_expires_at = expires_at
+    db.commit()
+
+    send_verification_email(current_user.email, current_user.full_name, token)
+    logger.info("[auth] verification email resent: %s", current_user.email)
+    return {"status": "sent"}
 
 
 @router.get("/auth/me")
@@ -143,83 +185,89 @@ def change_password(
     return {"status": "ok"}
 
 
-# ── User management (ceo only — scoped to same org) ───────────────────────────
+# ── Organisation creation (post-verification, once) ────────────────────────────
 
-@router.get("/users")
-def list_users(
-    current_user: User = Depends(require_ceo),
+@router.post("/organisations", status_code=201)
+def create_organisation(
+    body: CreateOrganisationRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    users = (
-        db.query(User)
-        .filter(User.org_id == current_user.org_id)
-        .order_by(User.created_at)
-        .all()
+    if not current_user.email_verified:
+        raise HTTPException(status_code=400, detail="Vérifiez votre email avant de créer votre organisation.")
+    if current_user.org_id:
+        raise HTTPException(status_code=400, detail="Vous appartenez déjà à une organisation.")
+    if len(body.name.strip()) < 2:
+        raise HTTPException(status_code=422, detail="Le nom de l'organisation est trop court.")
+    if body.plan not in PLAN_FEATURES:
+        raise HTTPException(status_code=422, detail=f"Plan invalide : {set(PLAN_FEATURES.keys())}")
+
+    org = Organisation(
+        name=body.name.strip(),
+        plan=body.plan,
+        sector=(body.sector or "").strip() or None,
+        company_size=body.company_size or None,
+        country=(body.country or "").strip() or None,
+        website=(body.website or "").strip() or None,
+        # Enterprise : données privées par défaut. Free/Pro : contribue par défaut,
+        # modifiable à tout moment par le CEO dans ses paramètres.
+        contributes_to_shared_training=(body.plan != "enterprise"),
     )
-    return [_user_out(u) for u in users]
+    db.add(org)
+    db.flush()
+
+    current_user.org_id = org.id
+    db.commit()
+    db.refresh(current_user)
+    logger.info("[auth] org '%s' created by %s", org.name, current_user.email)
+
+    return _user_out(current_user)
 
 
-@router.post("/users", status_code=201)
-def create_user(
-    body: CreateUserRequest,
+# ── Organisation settings (self-service, CEO only) ──────────────────────────
+
+def _org_out(org: Organisation) -> dict:
+    return {
+        "id":                              org.id,
+        "name":                            org.name,
+        "plan":                            org.plan,
+        "contributes_to_shared_training":  org.contributes_to_shared_training,
+    }
+
+
+@router.get("/organisations/me")
+def get_my_organisation(
+    current_user: User = Depends(get_current_org_user),
+    db: Session = Depends(get_db),
+):
+    org = db.query(Organisation).filter(Organisation.id == current_user.org_id).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organisation introuvable")
+    return _org_out(org)
+
+
+class UpdateTrainingConsentRequest(BaseModel):
+    contributes_to_shared_training: bool
+
+
+@router.patch("/organisations/me/training-consent")
+def update_training_consent(
+    body: UpdateTrainingConsentRequest,
     current_user: User = Depends(require_ceo),
     db: Session = Depends(get_db),
 ):
-    if body.role not in VALID_ROLES:
-        raise HTTPException(status_code=422, detail=f"Rôle invalide. Valeurs acceptées : {VALID_ROLES}")
-    if db.query(User).filter(User.email == body.email).first():
-        raise HTTPException(status_code=409, detail="Email déjà utilisé")
-    if len(body.password) < 6:
-        raise HTTPException(status_code=422, detail="Le mot de passe doit faire au moins 6 caractères")
-
-    user = User(
-        email=body.email,
-        full_name=body.full_name,
-        hashed_password=hash_password(body.password),
-        role=body.role,
-        org_id=current_user.org_id,
+    """
+    Contrôle si les corrections humaines de cette organisation alimentent le
+    dataset de fine-tuning du modèle NLP partagé. Décision du CEO uniquement —
+    la plateforme (superadmin) ne peut pas l'activer à sa place.
+    """
+    org = db.query(Organisation).filter(Organisation.id == current_user.org_id).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organisation introuvable")
+    org.contributes_to_shared_training = body.contributes_to_shared_training
+    db.commit()
+    logger.info(
+        "[org] %s (%s) set contributes_to_shared_training=%s",
+        org.id, org.name, body.contributes_to_shared_training,
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    logger.info("[auth] user created: %s (%s) in org %s", user.email, user.role, current_user.org_id)
-    return _user_out(user)
-
-
-@router.put("/users/{user_id}/role")
-def change_role(
-    user_id: int,
-    body: ChangeRoleRequest,
-    current_user: User = Depends(require_ceo),
-    db: Session = Depends(get_db),
-):
-    if body.role not in VALID_ROLES:
-        raise HTTPException(status_code=422, detail=f"Rôle invalide. Valeurs acceptées : {VALID_ROLES}")
-    if user_id == current_user.id:
-        raise HTTPException(status_code=400, detail="Vous ne pouvez pas changer votre propre rôle")
-
-    user = db.query(User).filter(User.id == user_id, User.org_id == current_user.org_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-
-    user.role = body.role
-    db.commit()
-    return _user_out(user)
-
-
-@router.delete("/users/{user_id}")
-def delete_user(
-    user_id: int,
-    current_user: User = Depends(require_ceo),
-    db: Session = Depends(get_db),
-):
-    if user_id == current_user.id:
-        raise HTTPException(status_code=400, detail="Vous ne pouvez pas supprimer votre propre compte")
-
-    user = db.query(User).filter(User.id == user_id, User.org_id == current_user.org_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-
-    user.is_active = False
-    db.commit()
-    return {"status": "ok"}
+    return _org_out(org)

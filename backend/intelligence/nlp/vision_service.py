@@ -21,21 +21,26 @@ import logging
 from functools import lru_cache
 from pathlib import Path
 
+from ._model_lock import MODEL_LOAD_LOCK
+
 logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
 def _load_model():
-    from transformers import BlipProcessor, BlipForConditionalGeneration
-    from core.config import settings
+    with MODEL_LOAD_LOCK:
+        from transformers import BlipProcessor, BlipForConditionalGeneration
+        from core.config import settings
 
-    logger.info("[NLP/Vision] Loading BLIP model: %s (device=%s)",
-                settings.vision_model_name, settings.vision_device)
-    processor = BlipProcessor.from_pretrained(settings.vision_model_name)
-    model = BlipForConditionalGeneration.from_pretrained(settings.vision_model_name)
-    model.to(settings.vision_device)
-    model.eval()
-    return processor, model
+        logger.info("[NLP/Vision] Loading BLIP model: %s (device=%s)",
+                    settings.vision_model_name, settings.vision_device)
+        processor = BlipProcessor.from_pretrained(settings.vision_model_name)
+        model = BlipForConditionalGeneration.from_pretrained(
+            settings.vision_model_name, low_cpu_mem_usage=False,
+        )
+        model.to(settings.vision_device)
+        model.eval()
+        return processor, model
 
 
 def generate_caption(image_path: str | Path) -> str | None:

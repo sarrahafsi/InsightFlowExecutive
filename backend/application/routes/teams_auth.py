@@ -21,33 +21,51 @@ from fastapi.responses import RedirectResponse
 from core.config import settings
 from core.database import SessionLocal
 from core.models import SourceConfig, User
-from core.security import get_current_user
+from core.security import get_current_org_user, is_same_org_account
+from core.plans import check_org_limit
 from fastapi import Depends
 import secrets
 
 router = APIRouter(prefix="/auth/teams", tags=["teams"])
 
-TEAMS_SCOPES = "ChannelMessage.Read.All Team.ReadBasic.All Channel.ReadBasic.All Chat.Read offline_access"
+TEAMS_SCOPES = "ChannelMessage.Read.All Team.ReadBasic.All Channel.ReadBasic.All Chat.Read User.Read offline_access"
 AUTH_BASE    = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
 TOKEN_URL    = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me"
 
-# state → org_id
-_oauth_states: dict[str, str | None] = {}
+# state → (org_id, requesting user's email)
+_oauth_states: dict[str, tuple[str | None, str]] = {}
 
 
 def _tenant() -> str:
     return settings.teams_tenant or "common"
 
 
+def _check_connector_limit_if_new(org_id: str | None) -> None:
+    """Gate max_connectors only when Teams isn't already connected for this org."""
+    db = SessionLocal()
+    try:
+        already = db.query(SourceConfig).filter(
+            SourceConfig.source == "teams", SourceConfig.org_id == org_id,
+        ).first()
+        if already:
+            return
+        count = db.query(SourceConfig).filter(SourceConfig.org_id == org_id).count()
+        check_org_limit(db, org_id, "max_connectors", count)
+    finally:
+        db.close()
+
+
 # ── OAuth flow ────────────────────────────────────────────────────────────────
 
 @router.get("/connect")
-async def teams_connect(current_user: User = Depends(get_current_user)):
+async def teams_connect(current_user: User = Depends(get_current_org_user)):
     """Redirect browser to Microsoft consent screen."""
     if not settings.teams_client_id:
         raise HTTPException(status_code=400, detail="Teams client_id not configured.")
+    _check_connector_limit_if_new(current_user.org_id)
     state = secrets.token_urlsafe(16)
-    _oauth_states[state] = current_user.org_id
+    _oauth_states[state] = (current_user.org_id, current_user.email)
     params = {
         "client_id":     settings.teams_client_id,
         "response_type": "code",
@@ -62,12 +80,13 @@ async def teams_connect(current_user: User = Depends(get_current_user)):
 
 
 @router.get("/auth-url")
-async def teams_auth_url(current_user: User = Depends(get_current_user)):
+async def teams_auth_url(current_user: User = Depends(get_current_org_user)):
     """Frontend flow — returns the OAuth URL as JSON."""
     if not settings.teams_client_id:
         raise HTTPException(status_code=400, detail="Teams client_id not configured.")
+    _check_connector_limit_if_new(current_user.org_id)
     state = secrets.token_urlsafe(16)
-    _oauth_states[state] = current_user.org_id
+    _oauth_states[state] = (current_user.org_id, current_user.email)
     params = {
         "client_id":     settings.teams_client_id,
         "response_type": "code",
@@ -95,7 +114,7 @@ async def teams_callback(
     if not code:
         raise HTTPException(status_code=400, detail="Aucun code d'autorisation reçu.")
 
-    org_id = _oauth_states.pop(state, None) if state else None
+    org_id, requesting_email = _oauth_states.pop(state, (None, None)) if state else (None, None)
 
     token_url = TOKEN_URL.format(tenant=_tenant())
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -109,6 +128,27 @@ async def teams_callback(
         if resp.status_code != 200:
             raise HTTPException(status_code=400, detail=f"Token exchange failed: {resp.text[:300]}")
         tokens = resp.json()
+
+        # Vérifie que le compte Microsoft connecté appartient bien au domaine de l'utilisateur
+        # InsightFlow qui a initié le flow — empêche de connecter un compte externe.
+        try:
+            me_resp = await client.get(
+                GRAPH_ME_URL,
+                headers={"Authorization": f"Bearer {tokens['access_token']}"},
+            )
+            me = me_resp.json() if me_resp.status_code == 200 else {}
+            connected_email = me.get("mail") or me.get("userPrincipalName") or ""
+        except Exception:
+            connected_email = ""
+
+    # TEMPORAIREMENT DÉSACTIVÉ : un seul compte dispo en test — voir auth.py (gmail_callback).
+    # if not connected_email or not is_same_org_account(connected_email, requesting_email or ""):
+    #     from urllib.parse import quote
+    #     return RedirectResponse(
+    #         f"{settings.frontend_url}/onboarding?connected=teams&error=domain_mismatch"
+    #         f"&connected_email={quote(connected_email)}",
+    #         status_code=302,
+    #     )
 
     token_data = {
         "access_token":  tokens["access_token"],
@@ -126,7 +166,7 @@ async def teams_callback(
 
 
 @router.get("/status")
-async def teams_status(current_user: User = Depends(get_current_user)):
+async def teams_status(current_user: User = Depends(get_current_org_user)):
     """Check whether Teams is authenticated for this org."""
     cfg = _load_token(current_user.org_id)
     if not cfg or not cfg.get("access_token"):
@@ -135,7 +175,7 @@ async def teams_status(current_user: User = Depends(get_current_user)):
 
 
 @router.delete("/disconnect", status_code=204)
-async def teams_disconnect(current_user: User = Depends(get_current_user)):
+async def teams_disconnect(current_user: User = Depends(get_current_org_user)):
     """Remove Teams token and switch back to mock mode."""
     db = SessionLocal()
     try:

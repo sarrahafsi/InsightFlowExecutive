@@ -333,7 +333,7 @@ export default function MLStatusCard() {
       {/* Corps expandable */}
       {expanded && (
         <div style={{ padding: "1.5rem 1.75rem", borderTop: "1px solid rgba(62,92,118,0.08)" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
+          <div className="rf-grid-2" style={{ gap: "1.5rem" }}>
 
             {/* Colonne gauche — Corrections */}
             <div>

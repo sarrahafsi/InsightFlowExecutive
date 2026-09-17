@@ -9,7 +9,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends
 from core.models import User
-from core.security import get_current_user
+from core.security import require_plan
 from core.store import OrgScopedItemStore
 from data.analytics.engine import compute_overview
 from intelligence.llm.client import complete, get_provider_info
@@ -177,7 +177,7 @@ Sur la base de ces patterns, propose 4 agents ou solutions d'automatisation."""
 @router.get("")
 async def get_recommendations(
     since_days: int = 7,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_plan("recommendations")),
 ):
     now    = datetime.utcnow()
     period = f"{(now - timedelta(days=since_days)).strftime('%d/%m')} – {now.strftime('%d/%m/%Y')}"
